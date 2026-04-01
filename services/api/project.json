@@ -1,0 +1,18 @@
+{
+  "name": "api",
+  "root": "services/api",
+  "targets": {
+    "dev": {
+      "command": "npx tsx watch src/index.ts",
+      "options": {
+        "cwd": "services/api"
+      }
+    },
+    "build": {
+      "command": "npx tsc",
+      "options": {
+        "cwd": "services/api"
+      }
+    }
+  }
+}

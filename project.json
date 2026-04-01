@@ -1,0 +1,15 @@
+{
+  "name": "app",
+  "root": ".",
+  "targets": {
+    "dev": {
+      "command": "npx tauri dev"
+    },
+    "build": {
+      "command": "npx tauri build"
+    },
+    "vite": {
+      "command": "vite"
+    }
+  }
+}
