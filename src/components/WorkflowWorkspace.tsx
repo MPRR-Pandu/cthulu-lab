@@ -6,8 +6,12 @@ import {
   deleteWorkflow,
   runWorkflow,
   getWorkflowRuns,
+  getWorkflowScript,
+  saveRunResult,
+  toggleWorkflow,
 } from "../lib/workflowApi";
 import type { Workflow, WorkflowStep, WorkflowRun } from "../lib/workflowApi";
+import { execInVm } from "../lib/gatewayApi";
 import WorkflowCanvas from "./workflow/WorkflowCanvas";
 import { playClick, playSuccess, playError } from "../lib/sounds";
 import * as yaml from "js-yaml";
@@ -60,9 +64,10 @@ const TEMPLATES: { name: string; description: string; steps: WorkflowStep[]; sch
 interface Props {
   email: string;
   globalWebhook?: string;
+  vmId: number;
 }
 
-export function WorkflowWorkspace({ email, globalWebhook }: Props) {
+export function WorkflowWorkspace({ email, globalWebhook, vmId }: Props) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editorFormat, setEditorFormat] = useState<"json" | "yaml">("json");
@@ -111,11 +116,31 @@ export function WorkflowWorkspace({ email, globalWebhook }: Props) {
     }
   }, [selectedId]);
 
+  const deployScriptToVm = async (workflowId: string, scriptPath: string, schedule?: string, wfName?: string) => {
+    try {
+      const scriptData = await getWorkflowScript(workflowId);
+      if (!scriptData) return;
+      const scriptB64 = btoa(scriptData.script);
+      const dir = scriptData.scriptPath.replace('/run.sh', '');
+      const deployCmd = `mkdir -p ${dir} && echo '${scriptB64}' | base64 -d > ${scriptData.scriptPath} && chmod +x ${scriptData.scriptPath} && echo DEPLOYED`;
+      await execInVm(vmId, deployCmd);
+
+      if (schedule && schedule !== 'manual') {
+        const safeName = (wfName || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const safeEmail = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const cronCmd = `(crontab -l 2>/dev/null | grep -v '${safeName}/run.sh'; echo "${schedule} ${scriptPath} >> /root/workflows/${safeEmail}/${safeName}/cron.log 2>&1") | crontab -`;
+        await execInVm(vmId, cronCmd);
+      }
+    } catch (err) {
+      console.error('[workflow] VM deploy failed:', err);
+    }
+  };
+
   const handleCreate = async () => {
     if (!name.trim() || steps.length === 0) return;
     playClick();
     const customWebhook = webhookUrl.trim();
-    const ok = await createWorkflow({
+    const result = await createWorkflow({
       email,
       name: name.trim(),
       steps,
@@ -124,7 +149,8 @@ export function WorkflowWorkspace({ email, globalWebhook }: Props) {
       sinkConfig: { type: "slack", webhookUrl: customWebhook || "$SLACK_WEBHOOK_URL" },
       active: true,
     });
-    if (ok) {
+    if (result.success && result.id) {
+      await deployScriptToVm(result.id, result.scriptPath || '', schedule, name.trim());
       playSuccess();
       setName("");
       setSteps([{ type: "fetch", name: "", command: "" }]);
@@ -140,13 +166,18 @@ export function WorkflowWorkspace({ email, globalWebhook }: Props) {
   const handleToggleCron = async (wf: Workflow) => {
     playClick();
     try {
-      const res = await fetch(`http://localhost:4000/workflows/${encodeURIComponent(wf.id)}/toggle`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: !wf.active }),
-      });
-      const data = await res.json();
-      if (data.success) {
+      const newActive = !wf.active;
+      const result = await toggleWorkflow(wf.id, newActive);
+      if (result.success && result.scriptPath) {
+        const safeName = (result.name || wf.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const safeEmail = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        if (newActive && result.schedule && result.schedule !== 'manual') {
+          const cronCmd = `(crontab -l 2>/dev/null | grep -v '${safeName}/run.sh'; echo "${result.schedule} ${result.scriptPath} >> /root/workflows/${safeEmail}/${safeName}/cron.log 2>&1") | crontab -`;
+          await execInVm(vmId, cronCmd);
+        } else {
+          const cronCmd = `(crontab -l 2>/dev/null | grep -v '${safeName}/run.sh') | crontab - 2>/dev/null; echo OK`;
+          await execInVm(vmId, cronCmd);
+        }
         playSuccess();
         await refresh();
       } else {
@@ -159,14 +190,15 @@ export function WorkflowWorkspace({ email, globalWebhook }: Props) {
 
   const handleSave = async (wf: Workflow) => {
     playClick();
-    const ok = await updateWorkflow(wf.id, {
+    const result = await updateWorkflow(wf.id, {
       name: wf.name,
       steps: wf.steps,
       schedule: wf.schedule,
       sink: wf.sink,
       sinkConfig: wf.sinkConfig,
     });
-    if (ok) {
+    if (result.success) {
+      await deployScriptToVm(wf.id, result.scriptPath || wf.scriptPath || '', wf.schedule, wf.name);
       playSuccess();
       setEditorSaved(true);
       setTimeout(() => setEditorSaved(false), 2000);
@@ -178,13 +210,24 @@ export function WorkflowWorkspace({ email, globalWebhook }: Props) {
 
   const handleDelete = async (id: string) => {
     playClick();
-    if (await deleteWorkflow(id)) { playSuccess(); setSelectedId(null); await refresh(); } else { playError(); }
+    const result = await deleteWorkflow(id);
+    if (result.success) {
+      if (result.scriptPath) {
+        const dir = result.scriptPath.replace('/run.sh', '');
+        const safeName = (result.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        await execInVm(vmId, `rm -rf ${dir} && (crontab -l 2>/dev/null | grep -v '${safeName}/run.sh') | crontab - 2>/dev/null; echo OK`).catch(() => {});
+      }
+      playSuccess();
+      setSelectedId(null);
+      await refresh();
+    } else {
+      playError();
+    }
   };
 
   const handleRun = async (id: string) => {
     playClick();
 
-    // Check if already running or queued
     const wf = workflows.find(w => w.id === id);
     if (wf) {
       const lastRun = wf.runs[wf.runs.length - 1];
@@ -195,26 +238,52 @@ export function WorkflowWorkspace({ email, globalWebhook }: Props) {
       }
     }
 
-    if (await runWorkflow(id)) {
+    const runData = await runWorkflow(id);
+    if (runData) {
       playSuccess();
       setBottomTab("logs");
-      // Poll for completion
-      const poll = setInterval(async () => {
-        await refresh();
-        const updated = (await listWorkflows(email)).find(w => w.id === id);
-        if (updated) {
-          const last = updated.runs[updated.runs.length - 1];
-          if (last && last.status !== "running") {
-            clearInterval(poll);
-            setLogs(updated.runs);
-            setWorkflows(prev => prev.map(w => w.id === id ? updated : w));
-            if (last.status === "success") playSuccess();
-            else playError();
-          }
+      await refresh();
+
+      (async () => {
+        try {
+          const result = await execInVm(vmId, runData.scriptPath || 'echo "no script"');
+          const stdout = result.stdout || '';
+          const stderr = result.stderr || '';
+          const parts = stdout.split('---OUTPUT---');
+          const trace = parts[0] || '';
+          const claudeOutput = (parts[1] || '').trim();
+
+          const stepResults = trace.split('\n').filter(l => l.startsWith('[')).map(l => ({
+            type: l.replace(/\[.*?\]\s*/, ''),
+            output: l,
+            durationMs: 0,
+          }));
+
+          const status = result.exit_code === 0 ? 'success' : 'failed';
+          await saveRunResult(id, runData.runId, {
+            status,
+            stepResults,
+            finalOutput: (claudeOutput || stderr || trace.slice(-500)).slice(0, 2000),
+          });
+
+          if (status === 'success') playSuccess();
+          else playError();
+        } catch (err) {
+          await saveRunResult(id, runData.runId, {
+            status: 'failed',
+            stepResults: [{ type: 'error', output: String(err), durationMs: 0 }],
+            finalOutput: String(err),
+          });
+          playError();
         }
-      }, 3000);
-      // Stop polling after 5 minutes
-      setTimeout(() => clearInterval(poll), 300000);
+        await refresh();
+        const updated = await listWorkflows(email);
+        const wfUpdated = updated.find(w => w.id === id);
+        if (wfUpdated) {
+          setLogs(wfUpdated.runs);
+          setWorkflows(prev => prev.map(w => w.id === id ? wfUpdated : w));
+        }
+      })();
     } else { playError(); }
   };
 

@@ -1,4 +1,5 @@
-const API_URL = "http://localhost:4000";
+import { getApiUrl } from "./config";
+const API_URL = getApiUrl();
 
 export interface UserVm {
   email: string;

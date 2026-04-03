@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { workspaceIpc } from "../lib/workspaceIpc";
+import { getApiUrl } from "../lib/config";
 
-const API_URL = "http://localhost:4000";
+const API_URL = getApiUrl();
 
 interface MongoWorkspace {
   id: string;

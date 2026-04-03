@@ -1,6 +1,7 @@
 import type { ApiResponse } from "../types/auth";
 
-const API_URL = "http://localhost:4000";
+import { getApiUrl } from "./config";
+const API_URL = getApiUrl();
 
 export async function apiFetch<T>(
   endpoint: string,

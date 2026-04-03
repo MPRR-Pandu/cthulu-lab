@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { env } from './config/env.js';
 import { connectDb } from './lib/db.js';
+import { authenticate } from './middleware/authenticate.js';
 import authRoutes from './routes/auth.js';
 import workspaceRoutes from './routes/workspaces.js';
 import scheduledRoutes from './routes/scheduled.js';
@@ -13,7 +14,7 @@ import workflowRoutes from './routes/workflows.js';
 const app = express();
 
 app.use(cors({
-  origin: ['http://localhost:1420', 'tauri://localhost'],
+  origin: true,
   credentials: true,
 }));
 
@@ -24,10 +25,12 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/auth', authRoutes);
+app.use('/oauth', oauthRoutes);
+
+app.use(authenticate);
 app.use('/workspaces', workspaceRoutes);
 app.use('/scheduled', scheduledRoutes);
 app.use('/user-vm', userVmRoutes);
-app.use('/oauth', oauthRoutes);
 app.use('/workflows', workflowRoutes);
 
 app.use((_req, res) => {

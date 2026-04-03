@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-const GATEWAY_URL: &str = "http://34.100.130.60:8080";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayHealth {
     pub status: String,
@@ -29,9 +27,17 @@ pub struct GatewayVM {
     pub rootfs: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecResult {
+    pub vm_id: u32,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
 #[tauri::command]
-pub async fn gateway_health() -> Result<GatewayHealth, String> {
-    let resp = reqwest::get(format!("{}/health", GATEWAY_URL))
+pub async fn gateway_health(gateway_url: String) -> Result<GatewayHealth, String> {
+    let resp = reqwest::get(format!("{}/health", gateway_url))
         .await
         .map_err(|e| format!("Gateway offline: {}", e))?;
     resp.json::<GatewayHealth>()
@@ -40,8 +46,8 @@ pub async fn gateway_health() -> Result<GatewayHealth, String> {
 }
 
 #[tauri::command]
-pub async fn gateway_list_vms() -> Result<Vec<GatewayVM>, String> {
-    let resp = reqwest::get(format!("{}/vms", GATEWAY_URL))
+pub async fn gateway_list_vms(gateway_url: String) -> Result<Vec<GatewayVM>, String> {
+    let resp = reqwest::get(format!("{}/vms", gateway_url))
         .await
         .map_err(|e| format!("Gateway offline: {}", e))?;
     let data: serde_json::Value = resp.json()
@@ -62,10 +68,10 @@ pub async fn gateway_list_vms() -> Result<Vec<GatewayVM>, String> {
 }
 
 #[tauri::command]
-pub async fn gateway_create_vm(tier: String) -> Result<GatewayVM, String> {
+pub async fn gateway_create_vm(gateway_url: String, tier: String) -> Result<GatewayVM, String> {
     let client = reqwest::Client::new();
     let resp = client
-        .post(format!("{}/vms", GATEWAY_URL))
+        .post(format!("{}/vms", gateway_url))
         .header("Content-Type", "application/json")
         .body(serde_json::json!({ "tier": tier }).to_string())
         .send()
@@ -77,10 +83,10 @@ pub async fn gateway_create_vm(tier: String) -> Result<GatewayVM, String> {
 }
 
 #[tauri::command]
-pub async fn gateway_delete_vm(vm_id: u32) -> Result<(), String> {
+pub async fn gateway_delete_vm(gateway_url: String, vm_id: u32) -> Result<(), String> {
     let client = reqwest::Client::new();
     let resp = client
-        .delete(format!("{}/vms/{}", GATEWAY_URL, vm_id))
+        .delete(format!("{}/vms/{}", gateway_url, vm_id))
         .send()
         .await
         .map_err(|e| format!("Delete failed: {}", e))?;
@@ -91,24 +97,13 @@ pub async fn gateway_delete_vm(vm_id: u32) -> Result<(), String> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecResult {
-    pub vm_id: u32,
-    pub exit_code: i32,
-    pub stdout: String,
-    pub stderr: String,
-}
-
 #[tauri::command]
-pub async fn gateway_exec(vm_id: u32, command: String) -> Result<ExecResult, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Client build failed: {}", e))?;
+pub async fn gateway_exec(gateway_url: String, vm_id: u32, command: String) -> Result<ExecResult, String> {
+    let client = reqwest::Client::new();
     let resp = client
-        .post(format!("{}/vms/{}/exec", GATEWAY_URL, vm_id))
+        .post(format!("{}/vms/{}/exec", gateway_url, vm_id))
         .header("Content-Type", "application/json")
-        .body(serde_json::json!({ "command": command }).to_string())
+        .body(serde_json::json!({ "command": command, "timeout": 30 }).to_string())
         .send()
         .await
         .map_err(|e| format!("Exec failed: {}", e))?;

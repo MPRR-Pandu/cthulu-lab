@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getGatewayUrl } from "./config";
 
 export interface VM {
   vm_id: number;
@@ -19,25 +20,25 @@ export interface GatewayHealth {
 
 export async function gatewayHealth(): Promise<GatewayHealth | null> {
   try {
-    return await invoke<GatewayHealth>("gateway_health");
+    return await invoke<GatewayHealth>("gateway_health", { gatewayUrl: getGatewayUrl() });
   } catch { return null; }
 }
 
 export async function listVMs(): Promise<VM[]> {
   try {
-    return await invoke<VM[]>("gateway_list_vms");
+    return await invoke<VM[]>("gateway_list_vms", { gatewayUrl: getGatewayUrl() });
   } catch { return []; }
 }
 
 export async function createVM(tier: string): Promise<VM | null> {
   try {
-    return await invoke<VM>("gateway_create_vm", { tier });
+    return await invoke<VM>("gateway_create_vm", { gatewayUrl: getGatewayUrl(), tier });
   } catch { return null; }
 }
 
 export async function deleteVM(vmId: number): Promise<boolean> {
   try {
-    await invoke<void>("gateway_delete_vm", { vmId });
+    await invoke<void>("gateway_delete_vm", { gatewayUrl: getGatewayUrl(), vmId });
     return true;
   } catch { return false; }
 }
@@ -50,6 +51,5 @@ export interface ExecResult {
 }
 
 export async function execInVm(vmId: number, command: string): Promise<ExecResult> {
-  return invoke<ExecResult>("gateway_exec", { vmId, command });
+  return invoke<ExecResult>("gateway_exec", { gatewayUrl: getGatewayUrl(), vmId, command });
 }
-

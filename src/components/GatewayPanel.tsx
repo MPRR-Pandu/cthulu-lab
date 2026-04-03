@@ -342,7 +342,7 @@ export function GatewayPanel() {
       {/* Workflows */}
       {myVm && liveVm && (
         <div className="mt-4 border border-[#333] bg-[#0a0a0a]" style={{ height: "600px" }}>
-          <WorkflowWorkspace email={email} globalWebhook={slackWebhook} />
+          <WorkflowWorkspace email={email} globalWebhook={slackWebhook} vmId={myVm.vmId} />
         </div>
       )}
     </div>
