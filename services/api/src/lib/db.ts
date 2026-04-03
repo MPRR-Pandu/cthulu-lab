@@ -83,6 +83,7 @@ export function userVms(): Collection<UserVmDoc> {
 
 export interface WorkflowStepDoc {
   type: 'fetch' | 'claude';
+  name?: string;
   command?: string;
   prompt?: string;
 }
@@ -103,6 +104,8 @@ export interface WorkflowDoc {
   steps: WorkflowStepDoc[];
   schedule: string;
   sink: string;
+  sinkConfig?: { type: string; webhookUrl?: string };
+  scriptPath?: string;
   active: boolean;
   runs: WorkflowRunDoc[];
   createdAt: Date;

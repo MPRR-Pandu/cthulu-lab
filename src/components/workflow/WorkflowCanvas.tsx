@@ -1,5 +1,9 @@
-import { useMemo } from "react";
-import { ReactFlow, Background, BackgroundVariant, Position, type Node, type Edge, type NodeTypes } from "@xyflow/react";
+import { useMemo, useCallback, type DragEvent } from "react";
+import {
+  ReactFlow, Background, BackgroundVariant, Controls, MiniMap, Position,
+  useNodesState, useEdgesState, addEdge,
+  type Node, type Edge, type NodeTypes, type Connection,
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import TriggerNode from "./TriggerNode";
 import FetchNode from "./FetchNode";
@@ -86,26 +90,93 @@ interface Props {
   height?: number;
 }
 
+let nodeIdCounter = 0;
+
 export default function WorkflowCanvas({ workflow, height = 250 }: Props) {
-  const { nodes, edges } = useMemo(() => buildGraph(workflow), [workflow]);
+  const initial = useMemo(() => buildGraph(workflow), [workflow]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+
+  useMemo(() => {
+    const g = buildGraph(workflow);
+    setNodes(g.nodes);
+    setEdges(g.edges);
+  }, [workflow]);
+
+  // Handle new connections (rewiring)
+  const onConnect = useCallback((params: Connection) => {
+    setEdges((eds) => addEdge({ ...params, animated: true, style: { stroke: "#4de8e0", strokeWidth: 2 } }, eds));
+  }, [setEdges]);
+
+  // Handle drop from node palette
+  const onDragOver = useCallback((event: DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const onDrop = useCallback((event: DragEvent) => {
+    event.preventDefault();
+    const type = event.dataTransfer.getData("application/reactflow-type");
+    const label = event.dataTransfer.getData("application/reactflow-label");
+    if (!type) return;
+
+    const bounds = (event.target as HTMLElement).closest(".react-flow")?.getBoundingClientRect();
+    if (!bounds) return;
+
+    const position = {
+      x: event.clientX - bounds.left - 60,
+      y: event.clientY - bounds.top - 20,
+    };
+
+    const newNode: Node = {
+      id: `${type}-drop-${++nodeIdCounter}`,
+      type,
+      position,
+      data: { label: label || type, kind: type },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+    };
+
+    setNodes((nds) => [...nds, newNode]);
+  }, [setNodes]);
 
   return (
-    <div style={{ height }} className="border border-[#333] bg-[#050505]">
+    <div style={height ? { height } : { height: "100%" }} className="border border-[#333] bg-[#050505]">
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
         nodeTypes={nodeTypes}
         fitView
         proOptions={{ hideAttribution: true }}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        elementsSelectable={false}
-        panOnDrag={false}
-        zoomOnScroll={false}
-        zoomOnPinch={false}
-        zoomOnDoubleClick={false}
+        nodesDraggable={true}
+        nodesConnectable={true}
+        elementsSelectable={true}
+        panOnDrag={true}
+        zoomOnScroll={true}
+        zoomOnPinch={true}
+        zoomOnDoubleClick={true}
+        minZoom={0.3}
+        maxZoom={3}
+        defaultEdgeOptions={{ animated: true, style: { stroke: "#4de8e0", strokeWidth: 2 } }}
+        connectionLineStyle={{ stroke: "#4de8e0", strokeWidth: 2 }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1a1a1a" />
+        <Controls showInteractive={false} />
+        <MiniMap
+          nodeColor={(n) => {
+            if (n.type === "trigger") return "#5ddb6e";
+            if (n.type === "fetch") return "#4de8e0";
+            if (n.type === "claude") return "#a78bfa";
+            if (n.type === "sink") return "#e8d44d";
+            return "#555";
+          }}
+          maskColor="rgba(0,0,0,0.7)"
+        />
       </ReactFlow>
     </div>
   );

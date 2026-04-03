@@ -16,6 +16,11 @@ export interface WorkflowRun {
   finalOutput: string;
 }
 
+export interface SinkConfig {
+  type: 'ui' | 'slack';
+  webhookUrl?: string;
+}
+
 export interface Workflow {
   id: string;
   email: string;
@@ -23,6 +28,7 @@ export interface Workflow {
   steps: WorkflowStep[];
   schedule: string;
   sink: string;
+  sinkConfig?: SinkConfig;
   active: boolean;
   runs: WorkflowRun[];
   createdAt: string;
@@ -45,6 +51,18 @@ export async function createWorkflow(wf: Omit<Workflow, 'id' | 'runs' | 'created
     });
     const data = await res.json();
     return data.success;
+  } catch { return false; }
+}
+
+export async function updateWorkflow(id: string, data: { name: string; steps: WorkflowStep[]; schedule: string; sink: string; sinkConfig?: SinkConfig }): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/workflows/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    const d = await res.json();
+    return d.success;
   } catch { return false; }
 }
 

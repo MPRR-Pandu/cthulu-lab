@@ -5,7 +5,7 @@ import type { VM, GatewayHealth } from "../lib/gatewayApi";
 import type { UserVm } from "../lib/userVmApi";
 import { useAuthStore } from "../store/useAuthStore";
 import { playClick, playSuccess, playError } from "../lib/sounds";
-import { WorkflowPanel } from "./WorkflowPanel";
+import { WorkflowWorkspace } from "./WorkflowWorkspace";
 
 type AuthState = "unknown" | "syncing" | "authed" | "not_authed" | "error";
 
@@ -150,28 +150,40 @@ export function GatewayPanel() {
     if (!myVm || !slackWebhook.trim()) return;
     playClick();
 
-    // Save webhook to MongoDB
-    await updateSlackWebhook(email, slackWebhook.trim());
+    const webhook = slackWebhook.trim();
 
-    // Install cron in VM via exec
-    const cronScript = [
+    // Save webhook to MongoDB
+    await updateSlackWebhook(email, webhook);
+
+    // Set SLACK_WEBHOOK_URL env var in VM + install cron
+    const setupScript = [
+      // Set env var persistently
+      `sed -i '/SLACK_WEBHOOK_URL/d' ~/.bashrc 2>/dev/null`,
+      `echo "export SLACK_WEBHOOK_URL='${webhook}'" >> ~/.bashrc`,
+      `sed -i '/SLACK_WEBHOOK_URL/d' ~/.ssh/environment 2>/dev/null`,
+      `mkdir -p ~/.ssh`,
+      `echo "SLACK_WEBHOOK_URL=${webhook}" >> ~/.ssh/environment`,
+      // Install token expiry cron
       `cat > /root/check-token-expiry.sh << 'CRONEOF'`,
       `#!/bin/bash`,
+      `WEBHOOK=\${SLACK_WEBHOOK_URL:-""}`,
+      `[ -z "$WEBHOOK" ] && source ~/.bashrc 2>/dev/null && WEBHOOK=$SLACK_WEBHOOK_URL`,
+      `[ -z "$WEBHOOK" ] && exit 0`,
       `STATUS=$(claude auth status 2>/dev/null)`,
       `LOGGED_IN=$(echo "$STATUS" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('loggedIn',False))" 2>/dev/null)`,
       `if [ "$LOGGED_IN" = "False" ]; then`,
-      `  curl -s -X POST '${slackWebhook.trim()}' -H 'Content-Type: application/json' \\`,
+      `  curl -s -X POST "$WEBHOOK" -H 'Content-Type: application/json' \\`,
       `    -d '{"text":"⚠️ Cthulu Lab — Claude token expiring soon\\nVM: port ${myVm.webPort}\\nLogin manually from web terminal: http://<YOUR_HOST>:${myVm.webPort}"}'`,
       `fi`,
       `CRONEOF`,
       `chmod +x /root/check-token-expiry.sh`,
       `(crontab -l 2>/dev/null | grep -v check-token-expiry; echo "*/15 * * * * /root/check-token-expiry.sh") | crontab -`,
-      `echo "CRON_INSTALLED"`,
+      `echo "INSTALLED"`,
     ].join("\n");
 
     try {
-      const result = await execInVm(myVm.vmId, cronScript);
-      if (result.stdout.includes("CRON_INSTALLED")) {
+      const result = await execInVm(myVm.vmId, setupScript);
+      if (result.stdout.includes("INSTALLED")) {
         setShowSlackSetup(false);
         playSuccess();
       } else {
@@ -183,7 +195,7 @@ export function GatewayPanel() {
   const isOnline = health?.status === "ok";
 
   return (
-    <div className="py-2 px-4 font-mono text-xs max-w-[700px]">
+    <div className="py-2 px-4 font-mono text-xs overflow-y-auto h-full">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
@@ -207,7 +219,7 @@ export function GatewayPanel() {
       {loading ? (
         <div className="text-[#555] animate-pulse">loading...</div>
       ) : myVm ? (
-        <div className="border border-[#333] p-3 bg-[#0a0a0a] glow-active">
+        <div className="border border-[#333] p-2 bg-[#0a0a0a] glow-active">
           {/* VM info */}
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -230,34 +242,30 @@ export function GatewayPanel() {
 
           {liveVm && (
             <>
-              {/* Action buttons */}
-              <div className="mt-3 flex gap-2">
+              {/* Action buttons — compact inline */}
+              <div className="mt-2 flex gap-1 flex-wrap">
                 <button
                   onClick={() => { playClick(); setShowTerminal(!showTerminal); }}
-                  className={`flex-1 py-1.5 border text-sm glow-hover glow-click ${
+                  className={`px-2 py-0.5 border text-[10px] glow-hover glow-click ${
                     showTerminal ? "border-[#5ddb6e] text-[#5ddb6e]" : "border-[#4de8e0] text-[#4de8e0] hover:bg-[#4de8e0]/10"
                   }`}
                 >
-                  {showTerminal ? "HIDE TERMINAL" : "SHOW TERMINAL"}
+                  {showTerminal ? "HIDE TERM" : "TERMINAL"}
                 </button>
-              </div>
-
-              {/* Auth sync */}
-              <div className="mt-2 flex gap-2">
                 {authState === "authed" ? (
-                  <button onClick={handleSyncAuth} className="flex-1 py-1.5 border border-[#5ddb6e] text-[#5ddb6e] hover:bg-[#5ddb6e]/10 text-sm glow-green" title="Click to re-sync">
+                  <button onClick={handleSyncAuth} className="px-2 py-0.5 border border-[#5ddb6e] text-[#5ddb6e] hover:bg-[#5ddb6e]/10 text-[10px] glow-green" title="Click to re-sync">
                     {"\u2713"} CLAUDE AUTHED
                   </button>
                 ) : authState === "syncing" ? (
-                  <div className="flex-1 py-1.5 border border-[#e8d44d] text-[#e8d44d] text-sm text-center glow-yellow animate-pulse">
+                  <span className="px-2 py-0.5 border border-[#e8d44d] text-[#e8d44d] text-[10px] glow-yellow animate-pulse">
                     SYNCING...
-                  </div>
+                  </span>
                 ) : (
-                  <button onClick={handleSyncAuth} className="flex-1 py-1.5 border border-[#a78bfa] text-[#a78bfa] hover:bg-[#a78bfa]/10 text-sm glow-hover glow-click">
-                    SYNC CLAUDE AUTH
+                  <button onClick={handleSyncAuth} className="px-2 py-0.5 border border-[#a78bfa] text-[#a78bfa] hover:bg-[#a78bfa]/10 text-[10px] glow-hover glow-click">
+                    SYNC AUTH
                   </button>
                 )}
-                <button onClick={handleCheckAuth} className="py-1.5 px-3 border border-[#333] text-[#808080] hover:text-[#4de8e0] text-sm glow-hover">
+                <button onClick={handleCheckAuth} className="px-2 py-0.5 border border-[#333] text-[#808080] hover:text-[#4de8e0] text-[10px] glow-hover">
                   CHECK
                 </button>
               </div>
@@ -275,30 +283,35 @@ export function GatewayPanel() {
                   [{showSlackSetup ? "HIDE" : "SETUP SLACK ALERT"}]
                 </button>
                 {showSlackSetup && (
-                  <div className="mt-1 flex gap-1">
-                    <input
-                      value={slackWebhook}
-                      onChange={(e) => setSlackWebhook(e.target.value)}
-                      placeholder="https://hooks.slack.com/services/..."
-                      className="flex-1 bg-[#0a0a0a] border border-[#333] px-2 py-1 text-[10px] text-[#e0e0e0] outline-none focus:border-[#e8d44d]"
-                    />
-                    <button onClick={handleSetupSlack} className="px-2 py-1 text-[10px] border border-[#e8d44d] text-[#e8d44d] hover:bg-[#e8d44d]/10">
-                      INSTALL
-                    </button>
+                  <div className="mt-1">
+                    <div className="flex gap-1">
+                      <input
+                        value={slackWebhook}
+                        onChange={(e) => setSlackWebhook(e.target.value)}
+                        placeholder="https://hooks.slack.com/services/..."
+                        className="flex-1 bg-[#0a0a0a] border border-[#333] px-2 py-1 text-[10px] text-[#e0e0e0] outline-none focus:border-[#e8d44d]"
+                      />
+                      <button onClick={handleSetupSlack} className="px-2 py-1 text-[10px] border border-[#e8d44d] text-[#e8d44d] hover:bg-[#e8d44d]/10">
+                        INSTALL
+                      </button>
+                    </div>
+                    <div className="text-[9px] text-[#555] mt-0.5">
+                      sets SLACK_WEBHOOK_URL in VM · used as default for all workflows
+                    </div>
                   </div>
                 )}
               </div>
 
               {/* Embedded terminal */}
-              {showTerminal && myVm && (
-                <div className="mt-2">
+              {myVm && (
+                <div className="mt-2" style={{ display: showTerminal ? "block" : "none" }}>
                   <div className="text-[10px] text-[#555] mb-1">
                     run <span className="text-[#4de8e0]">claude auth status</span> to verify
                   </div>
                   <iframe
                     src={myVm.webTerminal}
                     className="w-full border border-[#333] bg-black"
-                    style={{ height: "300px" }}
+                    style={{ height: "200px" }}
                     title="VM Terminal"
                   />
                 </div>
@@ -319,7 +332,7 @@ export function GatewayPanel() {
               <option value="nano">nano — 1 vCPU, 512 MB RAM</option>
               <option value="micro">micro — 2 vCPU, 1 GB RAM</option>
             </select>
-            <button onClick={handleCreate} disabled={creating || !isOnline} className="px-4 py-1.5 border border-[#5ddb6e] text-[#5ddb6e] hover:bg-[#5ddb6e]/10 disabled:opacity-30 text-xs glow-hover">
+            <button onClick={handleCreate} disabled={creating || !isOnline} className="px-2 py-0.5 border border-[#5ddb6e] text-[#5ddb6e] hover:bg-[#5ddb6e]/10 disabled:opacity-30 text-[10px] glow-hover">
               {creating ? "CREATING..." : "CREATE MY VM"}
             </button>
           </div>
@@ -328,8 +341,8 @@ export function GatewayPanel() {
 
       {/* Workflows */}
       {myVm && liveVm && (
-        <div className="mt-4">
-          <WorkflowPanel email={email} />
+        <div className="mt-4 border border-[#333] bg-[#0a0a0a]" style={{ height: "600px" }}>
+          <WorkflowWorkspace email={email} globalWebhook={slackWebhook} />
         </div>
       )}
     </div>
