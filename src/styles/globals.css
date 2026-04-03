@@ -41,3 +41,188 @@ body {
 .cursor-blink {
   animation: blink 1s step-end infinite;
 }
+
+/* ── Glow effects ── */
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(77, 232, 224, 0.2); }
+  50% { box-shadow: 0 0 12px rgba(77, 232, 224, 0.4); }
+}
+
+@keyframes glow-pulse-green {
+  0%, 100% { box-shadow: 0 0 4px rgba(93, 219, 110, 0.2); }
+  50% { box-shadow: 0 0 12px rgba(93, 219, 110, 0.5); }
+}
+
+@keyframes glow-pulse-red {
+  0%, 100% { box-shadow: 0 0 4px rgba(240, 96, 96, 0.2); }
+  50% { box-shadow: 0 0 10px rgba(240, 96, 96, 0.4); }
+}
+
+@keyframes glow-pulse-yellow {
+  0%, 100% { box-shadow: 0 0 4px rgba(232, 212, 77, 0.2); }
+  50% { box-shadow: 0 0 10px rgba(232, 212, 77, 0.4); }
+}
+
+@keyframes text-glow-pulse {
+  0%, 100% { text-shadow: 0 0 4px rgba(77, 232, 224, 0.3); }
+  50% { text-shadow: 0 0 10px rgba(77, 232, 224, 0.6); }
+}
+
+/* Glow on active/selected elements */
+.glow-active {
+  box-shadow: 0 0 8px rgba(77, 232, 224, 0.3);
+  border-color: rgba(77, 232, 224, 0.5) !important;
+}
+
+.glow-active-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+  border-color: rgba(77, 232, 224, 0.4) !important;
+}
+
+.glow-green {
+  animation: glow-pulse-green 2s ease-in-out infinite;
+}
+
+.glow-red {
+  animation: glow-pulse-red 1.5s ease-in-out infinite;
+}
+
+.glow-yellow {
+  animation: glow-pulse-yellow 2s ease-in-out infinite;
+}
+
+/* Text glow for active labels */
+.text-glow {
+  text-shadow: 0 0 6px rgba(77, 232, 224, 0.4);
+}
+
+.text-glow-pulse {
+  animation: text-glow-pulse 2s ease-in-out infinite;
+}
+
+/* Button glow on hover */
+.glow-hover:hover {
+  box-shadow: 0 0 8px rgba(77, 232, 224, 0.3);
+  border-color: rgba(77, 232, 224, 0.5) !important;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+/* Button glow on click (brief flash) */
+.glow-click:active {
+  box-shadow: 0 0 16px rgba(77, 232, 224, 0.6);
+  transition: box-shadow 0.05s;
+}
+
+/* Sidebar border glow for active session */
+.glow-border-left {
+  border-left: 2px solid rgba(77, 232, 224, 0.6);
+  box-shadow: inset 3px 0 8px -3px rgba(77, 232, 224, 0.2);
+}
+
+/* Logo mascot glow */
+.glow-mascot {
+  filter: drop-shadow(0 0 6px rgba(93, 173, 236, 0.3));
+}
+
+.glow-mascot-active {
+  filter: drop-shadow(0 0 8px rgba(240, 96, 96, 0.4));
+  animation: glow-pulse-red 1s ease-in-out infinite;
+}
+
+.glow-mascot-dance {
+  filter: drop-shadow(0 0 8px rgba(93, 219, 110, 0.4));
+  animation: glow-pulse-green 1.5s ease-in-out infinite;
+}
+
+/* ── Workflow Canvas Nodes ── */
+.wf-node {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 10px;
+  background: #0a0a0a;
+  border: 1px solid #333;
+  padding: 6px 10px;
+  min-width: 120px;
+  color: #e0e0e0;
+}
+
+.wf-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wf-badge {
+  font-size: 8px;
+  padding: 1px 4px;
+  border: 1px solid;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+.wf-badge-trigger { color: #5ddb6e; border-color: #5ddb6e40; }
+.wf-badge-fetch { color: #4de8e0; border-color: #4de8e040; }
+.wf-badge-claude { color: #a78bfa; border-color: #a78bfa40; }
+.wf-badge-sink { color: #e8d44d; border-color: #e8d44d40; }
+
+.wf-label {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.wf-kind {
+  color: #555;
+  font-size: 9px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-handle {
+  width: 6px !important;
+  height: 6px !important;
+  background: #333 !important;
+  border: 1px solid #555 !important;
+}
+
+.wf-running {
+  border-color: #4de8e0;
+  box-shadow: 0 0 8px rgba(77, 232, 224, 0.3);
+  animation: wf-pulse 1.5s ease-in-out infinite;
+}
+
+.wf-completed {
+  border-color: #5ddb6e;
+  box-shadow: 0 0 6px rgba(93, 219, 110, 0.3);
+}
+
+.wf-failed {
+  border-color: #f06060;
+  box-shadow: 0 0 6px rgba(240, 96, 96, 0.3);
+}
+
+@keyframes wf-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(77, 232, 224, 0.2); }
+  50% { box-shadow: 0 0 12px rgba(77, 232, 224, 0.5); }
+}
+
+.react-flow__background {
+  background-color: #050505 !important;
+}
+
+.react-flow__controls button {
+  background: #111 !important;
+  border: 1px solid #333 !important;
+  color: #808080 !important;
+}
+
+.react-flow__controls button:hover {
+  background: #1a1a1a !important;
+  color: #e0e0e0 !important;
+}
+
+.react-flow__minimap {
+  background: #0a0a0a !important;
+  border: 1px solid #333 !important;
+}

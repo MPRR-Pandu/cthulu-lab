@@ -8,7 +8,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           <span className="text-[#ff6b6b]">●</span>
           <span className="text-[#f5c542]">●</span>
           <span className="text-[#5dadec]">●</span>
-          <span className="text-[#808080] ml-2">command-center://auth</span>
+          <span className="text-[#808080] ml-2">cthulu-lab://auth</span>
         </div>
         <div className="p-6">{children}</div>
         <div className="border-t border-[#333333] px-4 py-2 text-xs text-[#555]">

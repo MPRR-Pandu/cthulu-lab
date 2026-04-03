@@ -1,139 +1,151 @@
-# Command Center
+# Cthulu Lab
 
-A desktop AI agent command center built with Tauri, React, and Rust. Manage a team of AI agents with context switching, swarm visualization, and real-time collaboration.
+A desktop AI agent lab built with Tauri, React, and Rust. 5 autonomous agents with context switching, swarm visualization, and task assignment from GitHub/Notion/Linear.
 
 ```
 ┌─────────────┬──────────────────┬─────────────────┐
-│  ╭─────╮    │                  │ ◆ SWARM CONTROL │
-│  │ ·  · │   │  Chat with any   │    ○   ○        │
-│  │  ◡   │   │  agent. Switch   │   / \ / \       │
-│  ╰──┬──╯   │  context freely.  │  ○──●──○        │
-│  CMD CENTER │  History saved.   │   \ / \ /       │
-│             │                  │    ○   ○        │
-│ ── AGENTS ──│                  ├─ MISSION ───────┤
-│ ▸ Doc Brown │                  │ Auth v1          │
-│   Rick      │                  │ ████████░░ 80%   │
-│   Morty     │                  ├─ QUEUE ─────────┤
-│   Marty     │                  │ ▸ Build login    │
-│   ...       │                  │   Fix bug        │
-│             │  > ____________  ├─ ACTIVITY ──────┤
-│ ── INBOX ── │  | ____________  │ 14:20 Rick resp  │
-│ ── SWARM ── │  | enter to send │ 14:18 user deleg │
+│  CTHULU LAB │                  │ ── MISSION ──── │
+│             │  Chat with any   │ Auth v1  80%    │
+│ [SESSIONS]  │  agent. Switch   ├─ QUEUE ─────── │
+│ [INBOX]     │  context freely. │ ▸ Build login   │
+│             │                  ├─ ACTIVITY ───── │
+│ ▸ Builder ● │                  │ 14:20 responded │
+│   Fixer     │                  ├─ SWARM ──────── │
+│             │  > ____________  │    ○   ○        │
+│── CRAFT ────│  | enter to send ├─ WORKFORCE ──── │
+│ what:       │                  │ Doc Brown [assign]│
+│ context:    │                  │ Marty   ● [chat] │
+│ [GENERATE]  │                  │ Rick      [assign]│
 └─────────────┴──────────────────┴─────────────────┘
 ```
 
 ## Quick Start
 
 ```bash
-# 1. Clone and install
-cd command-center
-npm install
+cd cthulu-lab && npm install
 
-# 2. Start MongoDB (Docker)
-docker compose up -d mongo
+# Start MongoDB
+docker run -d --name cthulu-mongo -p 27017:27017 \
+  -e MONGO_INITDB_ROOT_USERNAME=root \
+  -e MONGO_INITDB_ROOT_PASSWORD=checkOne mongo:7
 
-# 3. Setup API
-cd services/api
-npm install
+# Setup API
+cd services/api && npm install
 echo 'PORT=4000
-DATABASE_URL="mongodb://root:checkOne@localhost:27017/command_center?authSource=admin"
-JWT_SECRET="command-center-jwt-secret-dev-only-32chars!"
-JWT_REFRESH_SECRET="command-center-refresh-secret-dev-only-32ch!"' > .env
+DATABASE_URL="mongodb://root:checkOne@localhost:27017/cthulu_lab?authSource=admin"
+JWT_SECRET="cthulu-lab-jwt-secret-dev-only-32chars!!"
+JWT_REFRESH_SECRET="cthulu-lab-refresh-secret-dev-only-32ch!!"' > .env
 
-# 4. Run everything (Nx runs API + Tauri in parallel)
-cd ../..
-npm start
+# Run everything
+cd ../.. && npm start
 ```
 
-Register → Login → You're in.
-
-## Features
-
-### Agent Team (15 agents, Back to the Future × Rick and Morty)
+## Agents (5)
 
 | Agent | Character | Role |
 |-------|-----------|------|
-| `/lead` | Doc Brown | Orchestrator — sprint contracts, delegation |
-| `/plan` | Rick Sanchez | Architect — explores code, designs plans |
-| `/spec` | Morty Smith | Spec writer — translates ideas to specs |
-| `/build` | Marty McFly | Full-stack dev — ships at 88mph |
-| `/fix` | Rick C-137 | Debugger — finds root cause across dimensions |
-| `/review` | Young Doc Brown | Code reviewer — fresh eyes, catches everything |
-| `/test` | Squanchy | Test engineer — squanches through your code |
-| `/ship` | — | Pipeline — lint → test → commit |
-| `/eval` | Birdperson | QA evaluator — honest, independent judgment |
-| `/deploy` | Scary Terry | DevOps — deploys relentlessly |
-| `/secure` | Evil Morty | Security — trusts nothing |
-| `/frontend` | Summer Smith | Frontend — pixel-perfect UI |
-| `/backend` | Biff Tannen | Backend — brute force APIs |
-| `/write` | Beth Smith | Technical writer — surgical precision |
-| `/standup` | — | Daily standup from git + Slack + Notion |
+| **Lead** | Doc Brown | Orchestrator — plans, specs, delegates |
+| **Builder** | Marty McFly | Full-stack — frontend, backend, database |
+| **Reviewer** | Birdperson | Quality gate — review, test, security audit |
+| **Fixer** | Rick C-137 | Debug + ops — fixes, deploys, docs |
+| **Analyst** | Professor Brown | Research — data, costs, trade-offs |
 
-### Swarm Visualization
-- Canvas-based node graph with elastic physics
-- Glowing agent nodes in their team colors
-- Animated connection particles when agents communicate
-- Mouse-interactive — nodes repel on hover
-- HUD overlay: workforce count, repo, merge status
+### 3-Layer Prompt Architecture
 
-### Animated Morty Mascot
-- Idle: eyes look around, slow sway
-- Working: panicked face, arms flailing — "AW JEEZ!"
-- Dancing: happy face, arms waving — "WUBBA!"
+```
+Layer 1: System Prompt (.claude/system-prompt.md)     — shared rules for ALL agents
+Layer 2: Agent Prompt  (.claude/agents/<id>.md)        — role-specific behavior
+Layer 3: User Prompt   (your message or CRAFT output)  — the task
+```
 
-### Sound Effects
-- **Switch agent** — short blip
-- **Send message** — two-tone up
-- **Agent responds** — soft ding
-- **Loop detection alert** — warning buzz
-- **Mission progress** — rising chime
-- **Mission complete** — hallelujah 🎵
+Inspired by [ParaHelp](https://elifuzz.github.io/awesome-system-prompts/parahelp), [Codex](https://elifuzz.github.io/awesome-system-prompts/codex), and [Devin](https://elifuzz.github.io/awesome-system-prompts/devin) patterns.
 
-### Inbox System
-- Agent-to-agent messages (delegation, reports, questions, alerts)
-- Auto-posts when you send a message (delegation) and when agent responds (report)
-- Loop detection: 3 consecutive failures → alert to user
-- Color-coded by type: cyan/green/yellow/red
+## CRAFT Panel
 
-### Right Panel
-- **Mission** — current goal with progress bar
-- **Queue** — pending tasks, click to assign
-- **Activity** — timestamped event log
+Type a short task → auto-generates a detailed prompt → review/edit → assign to the right agent.
 
-### Terminal UI
-- Monospace font, box-drawing borders, no rounded corners
-- High contrast (WCAG AAA — 7:1+ ratio)
-- View modes: [CHAT] [SWARM] [SPLIT]
+**Examples:**
 
-### Auth
-- JWT-based login/register
-- MongoDB backend
-- Session persistence with token refresh
+| Task | Context | Agent |
+|------|---------|-------|
+| `create todo app on android` | `Jetpack Compose, Material 3, Room DB. Target API 26+.` | Builder |
+| `fix login auth bug` | `error after token expires. See AuthLayout.tsx line 45.` | Fixer |
+| `review PR #42` | `changes in services/api/src/. Focus on SQL injection.` | Reviewer |
+| `plan user notifications` | `3 channels: email, push, in-app. Using SendGrid. Deadline April 15.` | Lead |
+| `compare React Native vs Flutter` | `team knows TypeScript, no Dart. Ship MVP in 6 weeks.` | Analyst |
+| `deploy auth API to production` | `AWS ECS, Docker. Need zero-downtime. MongoDB Atlas.` | Fixer |
+
+The CRAFT panel detects keywords and adds relevant requirements automatically:
+- "android" + "design" → adds Material guidelines, responsive layout, latest SDK check
+- "auth" + "fix" → adds error handling, security, root cause analysis
+- "deploy" → adds health checks, version pinning, rollback strategy
+
+### `/` Command Palette
+
+Type `/` in the chat input for quick templates:
+
+| Command | Agent | Action |
+|---------|-------|--------|
+| `/summarize` | Lead | Meeting summary |
+| `/rewrite` | Fixer | Email rewrite |
+| `/plan` | Lead | Task planner |
+| `/report` | Analyst | Report maker |
+| `/compare` | Analyst | Idea comparison |
+| `/clarify` | Fixer | Clarity rewrite |
+
+## Assign Modal
+
+Click `[assign]` on any agent in the WORKFORCE panel to open the task picker:
+
+| Tab | Source | Auth |
+|-----|--------|------|
+| **Manual** | Free text | None |
+| **GitHub** | `gh issue list` | gh CLI auth |
+| **Notion** | Notion API | Integration token |
+| **Linear** | Linear GraphQL | API key |
+
+## Features
+
+- **Swarm Visualization** — canvas node graph, elastic physics, glowing agent nodes
+- **Sessions Tab** — active conversations per agent with message count and preview
+- **Inbox** — agent-to-agent messages, loop detection (3 failures → alert), auto-approve mode
+- **Workforce Panel** — agent status, assigned tasks, [chat] [stop] [assign] buttons
+- **Sound Effects** — blip (switch), two-tone (send), ding (respond), hallelujah (complete)
+- **Terminal UI** — monospace, box-drawing borders, WCAG AAA contrast
 
 ## Architecture
 
 ```
-command-center/
-├── src/                     React frontend (terminal UI)
-│   ├── components/          UI components (30+)
-│   ├── store/               Zustand stores (app + auth)
-│   ├── hooks/               React hooks (agents, chat, stream)
-│   ├── lib/                 IPC, colors, sprites, sounds
-│   └── __tests__/           Vitest test suite (58 tests)
+cthulu-lab/
+├── src/                     React frontend
+│   ├── components/          UI (ChatArea, Sidebar, WorkforcePanel, CraftPanel, AssignModal...)
+│   ├── store/               Zustand (app + auth)
+│   ├── hooks/               useChat, useStreamListener, useAgents
+│   └── lib/                 IPC, colors, sounds
 ├── src-tauri/               Rust backend
 │   └── src/
-│       ├── agent/           Agent parser (reads .claude/agents/*.md)
-│       ├── chat/            Chat session manager
-│       ├── claude/          CLI bridge (spawns claude, streams responses)
-│       ├── inbox/           Inbox system + loop detection
-│       └── commands/        Tauri IPC commands
-├── services/api/            Express auth API (MongoDB)
+│       ├── agent/           Parser (reads .claude/agents/*.md)
+│       ├── chat/            Session manager
+│       ├── claude/          CLI bridge (headless mode, stream batching)
+│       ├── inbox/           Inbox + loop detection
+│       └── commands/        Tauri IPC (chat, agent, workspace, issues)
+├── services/api/            Express auth API (MongoDB, JWT)
 ├── .claude/
-│   ├── agents/              15 agent definitions (markdown)
-│   ├── commands/            18 slash commands
-│   └── skills/              18 skills (SKILL.md files)
+│   ├── system-prompt.md     Shared system rules (Layer 1)
+│   ├── agents/              5 agent definitions (Layer 2)
+│   ├── commands/            Slash commands
+│   └── skills/              10 skills
 └── public/sounds/           Audio files
 ```
+
+## How It Works
+
+1. **You type** a task (or use CRAFT to generate a prompt)
+2. **Rust backend** spawns `claude -p --agent <id> --append-system-prompt-file system-prompt.md`
+3. **3-layer context**: system rules + agent role + your message
+4. **Streaming** response with 50ms batching + rAF debouncing
+5. **Session persists** via `--resume` for conversation continuity
+6. **Request cancellation** — new message kills previous in-flight process
 
 ## Tech Stack
 
@@ -141,36 +153,11 @@ command-center/
 |-------|-----------|
 | Desktop | Tauri v2 |
 | Frontend | React 18, TypeScript, Tailwind v4, Zustand |
-| Backend (Tauri) | Rust, tokio, serde |
-| Backend (Auth) | Express, MongoDB, JWT, bcrypt |
+| Backend | Rust, tokio, serde, reqwest |
+| Auth API | Express, MongoDB, JWT |
+| CLI Bridge | Claude Code headless (`claude -p`, Max Pro subscription) |
+| Integrations | GitHub (gh CLI), Notion API, Linear GraphQL |
 | Monorepo | Nx |
-| Testing | Vitest (58 tests) |
-| CLI Bridge | Claude Code CLI (`--agent`, `--resume`) |
-
-## Commands
-
-```bash
-npm start           # Run API + Tauri app (via Nx)
-npm test            # Run 58 tests
-npm run test:watch  # Watch mode
-npm run start:api   # API only
-npm run start:app   # Tauri only
-```
-
-## Skills (18)
-
-sprint-planner · code-review · deploy · pr-manager · db-migrate · api-design · security-audit · perf-optimize · docs-gen · marketing-copy · seo-optimize · changelog · onboarding · incident-response · cost-estimate · monitor-setup · activity-log · data-analysis
-
-## How It Works
-
-1. **You type** a message to any agent
-2. **Rust backend** spawns `claude` CLI with `--agent <name>`
-3. **Streaming** response appears in terminal-style chat
-4. **Session persists** via `--resume` for conversation continuity
-5. **Inbox** logs delegation + report messages
-6. **Swarm** shows which agents are active
-7. **Sounds** play on key events
-8. **Morty** panics when agents are working
 
 ## License
 

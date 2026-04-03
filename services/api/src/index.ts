@@ -5,6 +5,10 @@ import { env } from './config/env.js';
 import { connectDb } from './lib/db.js';
 import authRoutes from './routes/auth.js';
 import workspaceRoutes from './routes/workspaces.js';
+import scheduledRoutes from './routes/scheduled.js';
+import userVmRoutes from './routes/user-vm.js';
+import oauthRoutes from './routes/oauth.js';
+import workflowRoutes from './routes/workflows.js';
 
 const app = express();
 
@@ -21,6 +25,10 @@ app.get('/health', (_req, res) => {
 
 app.use('/auth', authRoutes);
 app.use('/workspaces', workspaceRoutes);
+app.use('/scheduled', scheduledRoutes);
+app.use('/user-vm', userVmRoutes);
+app.use('/oauth', oauthRoutes);
+app.use('/workflows', workflowRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ success: false, error: 'Not found' });

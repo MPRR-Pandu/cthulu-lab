@@ -1,5 +1,6 @@
 use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::time::Instant;
 
 use crate::chat::manager::ChatManager;
 use crate::chat::types::StreamChunk;
@@ -47,9 +48,12 @@ pub async fn stream_response(
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
     let mut session_id: Option<String> = None;
+    let mut buffer = String::new();
+    let mut last_emit = Instant::now();
+    let batch_interval = std::time::Duration::from_millis(50);
+    let mut tool_call_count: u32 = 0;
 
     while let Ok(Some(line)) = lines.next_line().await {
-        // Try to capture session_id from init event
         if session_id.is_none() {
             if let Some(sid) = extract_session_id(&line) {
                 session_id = Some(sid);
@@ -57,33 +61,67 @@ pub async fn stream_response(
         }
 
         if let Some(tool_event) = extract_tool_use(&line, agent_id) {
+            tool_call_count += 1;
             let _ = app_handle.emit("permission-request", &tool_event);
         }
 
+        if let Some(cost_data) = extract_cost_data(&line) {
+            let _ = app_handle.emit("chat-cost", serde_json::json!({
+                "agent_id": agent_id,
+                "message_id": message_id,
+                "cost_usd": cost_data.0,
+                "input_tokens": cost_data.1,
+                "output_tokens": cost_data.2,
+            }));
+        }
+
         if let Some(text) = extract_text_from_stream_json(&line) {
-            // Update in-memory
             chat_manager
                 .append_to_streaming(agent_id, message_id, &text)
                 .await;
 
-            // Emit to frontend
-            let _ = app_handle.emit(
-                "chat-stream",
-                StreamChunk {
-                    agent_id: agent_id.to_string(),
-                    message_id: message_id.to_string(),
-                    chunk: text,
-                    done: false,
-                },
-            );
+            buffer.push_str(&text);
+
+            if last_emit.elapsed() >= batch_interval {
+                let _ = app_handle.emit(
+                    "chat-stream",
+                    StreamChunk {
+                        agent_id: agent_id.to_string(),
+                        message_id: message_id.to_string(),
+                        chunk: buffer.clone(),
+                        done: false,
+                    },
+                );
+                buffer.clear();
+                last_emit = Instant::now();
+            }
         }
     }
 
-    // Wait for process to finish
+    if !buffer.is_empty() {
+        let _ = app_handle.emit(
+            "chat-stream",
+            StreamChunk {
+                agent_id: agent_id.to_string(),
+                message_id: message_id.to_string(),
+                chunk: buffer,
+                done: false,
+            },
+        );
+    }
+
     let _ = child.wait().await;
 
-    // Finalize
     chat_manager.finalize_message(agent_id, message_id).await;
+
+    let _ = app_handle.emit(
+        "chat-stats",
+        serde_json::json!({
+            "agent_id": agent_id,
+            "message_id": message_id,
+            "tool_calls": tool_call_count,
+        }),
+    );
 
     let _ = app_handle.emit(
         "chat-stream",
@@ -156,9 +194,23 @@ fn extract_text_from_stream_json(line: &str) -> Option<String> {
                 .map(|s| s.to_string())
         }
         "result" => {
-            // Skip — result repeats the same text already received from "assistant"
             None
         }
         _ => None,
+    }
+}
+
+fn extract_cost_data(line: &str) -> Option<(f64, u64, u64)> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    if v.get("type")?.as_str()? != "result" {
+        return None;
+    }
+    let cost = v.get("cost_usd").and_then(|c| c.as_f64()).unwrap_or(0.0);
+    let input_tokens = v.pointer("/usage/input_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
+    let output_tokens = v.pointer("/usage/output_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
+    if cost > 0.0 || input_tokens > 0 || output_tokens > 0 {
+        Some((cost, input_tokens, output_tokens))
+    } else {
+        None
     }
 }

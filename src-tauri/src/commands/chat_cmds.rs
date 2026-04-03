@@ -61,15 +61,24 @@ pub async fn send_message(
         content.clone()
     };
 
-    // Get speed mode and auto-approve
+    // Get speed mode, auto-approve, and budget cap
     let speed = state.speed_mode.read().await.clone();
     let auto_approve = *state.auto_approve.read().await;
+    let budget_cap = *state.budget_cap.read().await;
 
     // Check if we have an existing session for this agent
     let existing_session = {
         let sessions = state.agent_sessions.read().await;
         sessions.get(&agent_id).cloned()
     };
+
+    // Cancel any in-flight process for this agent
+    {
+        let mut procs = state.active_processes.write().await;
+        if let Some(old_stdin) = procs.remove(&agent_id) {
+            drop(old_stdin);
+        }
+    }
 
     // Spawn claude CLI — resume session if we have one
     let mut child = claude::cli::spawn_claude(
@@ -79,6 +88,7 @@ pub async fn send_message(
         existing_session.as_deref(),
         &speed,
         auto_approve,
+        budget_cap,
     )
     .await?;
 
@@ -125,6 +135,7 @@ pub async fn send_message(
                         content: response_preview,
                         timestamp: Utc::now(),
                         read: false,
+                        ref_message_id: Some(msg_id.clone()),
                     };
                     inbox.add(report).await;
                 }
@@ -152,6 +163,7 @@ pub async fn send_message(
                         content: response_preview,
                         timestamp: Utc::now(),
                         read: false,
+                        ref_message_id: Some(msg_id.clone()),
                     };
                     inbox.add(report).await;
                 }
@@ -183,6 +195,7 @@ pub async fn send_message(
                         content: alert_content.clone(),
                         timestamp: Utc::now(),
                         read: false,
+                        ref_message_id: None,
                     };
                     inbox.add(alert_msg).await;
 
@@ -236,6 +249,13 @@ pub async fn set_auto_approve(state: tauri::State<'_, AppState>, enabled: bool) 
     let mut auto = state.auto_approve.write().await;
     *auto = enabled;
     Ok(enabled)
+}
+
+#[tauri::command]
+pub async fn set_budget_cap(state: tauri::State<'_, AppState>, cap: f64) -> Result<f64, String> {
+    let mut budget = state.budget_cap.write().await;
+    *budget = cap;
+    Ok(cap)
 }
 
 #[tauri::command]

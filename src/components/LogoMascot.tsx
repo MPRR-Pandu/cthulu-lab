@@ -129,7 +129,7 @@ export function LogoMascot() {
   } else {
     frames = FRAMES_IDLE;
     color = "#5dadec";
-    label = "CMD CENTER";
+    label = "CTHULU LAB";
   }
 
   const currentFrame = frames[frame % frames.length];
@@ -147,13 +147,15 @@ export function LogoMascot() {
   return (
     <div className="px-2 py-2 border-b border-[#333333] flex items-center gap-2">
       <pre
-        className="text-[9px] leading-[1.05] select-none"
+        className={`text-[9px] leading-[1.05] select-none ${
+          isWorking ? "glow-mascot-active" : isDancing ? "glow-mascot-dance" : "glow-mascot"
+        }`}
         style={{ color }}
       >
         {renderedFrame.join("\n")}
       </pre>
       <div>
-        <div className="font-bold text-xs tracking-wider" style={{ color }}>
+        <div className="font-bold text-xs tracking-wider text-glow" style={{ color }}>
           {label}
         </div>
         <div className="text-[#555555] text-[9px]">

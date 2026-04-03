@@ -1,8 +1,10 @@
 import { SwarmVisual } from "./SwarmVisual";
 import { SwarmControl } from "./SwarmControl";
 import { MissionPanel } from "./MissionPanel";
+import { SchedulerPanel } from "./SchedulerPanel";
 import { QueuePanel } from "./QueuePanel";
 import { ActivityPanel } from "./ActivityPanel";
+import { WorkforcePanel } from "./WorkforcePanel";
 
 export function RightPanel() {
   return (
@@ -10,17 +12,23 @@ export function RightPanel() {
       <div className="border-b border-[#333333]">
         <MissionPanel />
       </div>
-      <div className="border-b border-[#333333] flex-1 overflow-y-auto">
+      <div className="border-b border-[#333333] max-h-[80px] overflow-y-auto">
+        <SchedulerPanel />
+      </div>
+      <div className="border-b border-[#333333] max-h-[80px] overflow-y-auto">
         <QueuePanel />
       </div>
-      <div className="border-b border-[#333333] flex-1 overflow-y-auto">
+      <div className="border-b border-[#333333] max-h-[60px] overflow-y-auto">
         <ActivityPanel />
       </div>
-      <div className="h-[350px] border-t border-[#333333]">
+      <div className="h-[240px] shrink-0 border-b border-[#333333]">
         <SwarmVisual />
       </div>
-      <div className="border-t border-[#333333]">
+      <div className="border-b border-[#333333]">
         <SwarmControl />
+      </div>
+      <div className="max-h-[180px] overflow-y-auto">
+        <WorkforcePanel />
       </div>
     </div>
   );

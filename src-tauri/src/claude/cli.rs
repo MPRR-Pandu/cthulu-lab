@@ -1,5 +1,21 @@
+use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
+
+/// Find the shared system-prompt.md file next to the agents directory.
+fn discover_system_prompt() -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+
+    // Walk up from cwd looking for .claude/system-prompt.md
+    let mut dir = cwd.as_path();
+    loop {
+        let candidate = dir.join(".claude").join("system-prompt.md");
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+        dir = dir.parent()?;
+    }
+}
 
 /// Spawn the claude CLI with an agent and message.
 /// Permission mode controlled by auto_approve flag.
@@ -10,6 +26,7 @@ pub async fn spawn_claude(
     session_id: Option<&str>,
     speed_mode: &str,
     auto_approve: bool,
+    budget_cap: f64,
 ) -> Result<tokio::process::Child, String> {
     if working_dir.is_empty() {
         return Err("No workspace set. Add a workspace first.".to_string());
@@ -30,9 +47,6 @@ pub async fn spawn_claude(
         cmd.arg("--model").arg("sonnet");
     }
 
-    // Permission mode:
-    // auto = approve everything (fastest, no blocking)
-    // acceptEdits = auto-approve file ops, ask for bash
     cmd.arg("--permission-mode")
         .arg(if auto_approve { "auto" } else { "acceptEdits" });
 
@@ -41,6 +55,16 @@ pub async fn spawn_claude(
     } else {
         cmd.arg("--agent").arg(agent_id);
     }
+
+    // Inject shared system prompt (Layer 1: system rules for ALL agents)
+    let system_prompt_path = discover_system_prompt();
+    if let Some(sp) = &system_prompt_path {
+        cmd.arg("--append-system-prompt-file").arg(sp);
+    }
+
+    cmd.arg("--include-partial-messages");
+
+    cmd.arg("--max-budget-usd").arg(format!("{:.1}", budget_cap));
 
     cmd.arg(message);
 
@@ -53,6 +77,7 @@ pub async fn spawn_claude(
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("TERM", std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string()))
         .env("WORKSPACE_ROOT", working_dir)
+        .env_remove("ANTHROPIC_API_KEY")
         .spawn()
         .map_err(|e| format!("Failed to spawn claude CLI: {}", e))?;
 

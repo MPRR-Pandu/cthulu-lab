@@ -56,9 +56,19 @@ pub async fn add_workspace(
     state: tauri::State<'_, AppState>,
     path: String,
 ) -> Result<Vec<WorkspaceInfo>, String> {
-    // Verify directory exists
-    if !std::path::Path::new(&path).is_dir() {
-        return Err(format!("Directory not found: {}", path));
+    let dir = std::path::Path::new(&path);
+    if !dir.is_dir() {
+        // If parent exists, create the child directory
+        if let Some(parent) = dir.parent() {
+            if parent.is_dir() {
+                std::fs::create_dir(&path)
+                    .map_err(|e| format!("Failed to create directory: {}", e))?;
+            } else {
+                return Err(format!("Parent directory not found: {}", parent.display()));
+            }
+        } else {
+            return Err(format!("Invalid path: {}", path));
+        }
     }
 
     let mut workspaces = state.workspaces.write().await;

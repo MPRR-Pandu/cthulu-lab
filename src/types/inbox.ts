@@ -8,4 +8,5 @@ export interface InboxMessage {
   content: string;
   timestamp: string;
   read: boolean;
+  ref_message_id?: string;
 }

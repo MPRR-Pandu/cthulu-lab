@@ -1,7 +1,7 @@
 {
-  "productName": "Command Center",
+  "productName": "Cthulu Lab",
   "version": "0.1.0",
-  "identifier": "com.commandcenter.app",
+  "identifier": "com.cthululab.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "Command Center",
+        "title": "Cthulu Lab",
         "width": 1200,
         "height": 800,
         "resizable": true,
@@ -19,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; connect-src 'self' http://localhost:4000; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      "csp": "default-src 'self'; script-src 'self'; connect-src 'self' http://localhost:4000 https://api.notion.com https://api.linear.app http://34.100.130.60:8080; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src http://34.100.130.60:*"
     }
   },
   "bundle": {

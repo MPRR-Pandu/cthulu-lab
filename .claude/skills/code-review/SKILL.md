@@ -1,49 +1,17 @@
 ---
 name: code-review
-description: Perform thorough code review checking for bugs, security, performance, and maintainability. Use when reviewing PRs or changed files.
+description: Review code for bugs, security, performance, and maintainability.
 ---
 
 # Code Review
 
-## When to Use
-- Reviewing a pull request
-- Auditing code before merge
-- Post-implementation quality check
-
-## Instructions
-
 1. Read the diff or changed files
-2. Check each file against the checklist below
-3. Classify findings by severity
-4. Provide actionable fix for every finding
+2. Check against severity levels
+3. Provide actionable fix for every finding
 
-## Checklist
+Severity levels:
+- **CRITICAL** (block merge): injection, hardcoded secrets, auth bypass, data loss, race conditions
+- **WARNING** (fix soon): missing error handling, N+1 queries, missing validation, null checks
+- **NIT**: style issues, unused imports, missing types
 
-### Critical (Block merge)
-- SQL injection, XSS, command injection
-- Secrets/keys hardcoded
-- Auth/authz bypass
-- Data loss scenarios
-- Race conditions in concurrent code
-
-### Warning (Fix before next sprint)
-- Missing error handling at boundaries
-- N+1 queries
-- Missing input validation
-- Inconsistent naming
-- Missing null/undefined checks
-
-### Nit (Nice to fix)
-- Code style inconsistencies
-- Unused imports
-- Overly complex expressions
-- Missing types
-
-## Output Format
-
-**[CRITICAL]** `file:line` — Issue. Fix: X.
-**[WARNING]** `file:line` — Issue. Fix: Y.
-**[NIT]** `file:line` — Issue. Fix: Z.
-
-**Summary:** X critical, Y warnings, Z nits
-**Verdict:** Approve / Request changes / Block
+Output: `[SEVERITY] file:line -- Issue. Fix: X.` Summary with verdict: Approve / Request changes / Block.

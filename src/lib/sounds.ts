@@ -1,4 +1,4 @@
-// Sound effects for Command Center events
+// Sound effects for Cthulu Lab events
 // Uses Web Audio API — works in Tauri webview
 
 let audioContext: AudioContext | null = null;
@@ -65,6 +65,27 @@ function playTone(frequency: number, duration: number, volume = 0.1): void {
 }
 
 // ─── PUBLIC API ───
+
+/** Soft click — general UI interaction (tabs, buttons, toggles) */
+export function playClick(): void {
+  playTone(1000, 0.04, 0.05);
+}
+
+/** Hover tick — subtle feedback on hover over interactive elements */
+export function playHover(): void {
+  playTone(1400, 0.02, 0.02);
+}
+
+/** Success chime — skill saved, setting changed */
+export function playSuccess(): void {
+  playTone(800, 0.06, 0.06);
+  setTimeout(() => playTone(1200, 0.08, 0.06), 100);
+}
+
+/** Error buzz — failure detected */
+export function playError(): void {
+  playTone(200, 0.1, 0.08);
+}
 
 /** Play hallelujah sound — for mission complete, ship success */
 export function playHallelujah(): void {

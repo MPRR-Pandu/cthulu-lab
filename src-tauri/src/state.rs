@@ -27,4 +27,6 @@ pub struct AppState {
     pub auto_approve: Arc<RwLock<bool>>,
     /// Active CLI process stdin handles for sending permission responses
     pub active_processes: Arc<RwLock<HashMap<String, Arc<Mutex<ChildStdin>>>>>,
+    /// Budget cap in USD for --max-budget-usd flag
+    pub budget_cap: Arc<RwLock<f64>>,
 }

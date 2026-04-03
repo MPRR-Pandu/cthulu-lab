@@ -33,6 +33,7 @@ pub async fn send_inbox_message(
         content,
         timestamp: Utc::now(),
         read: false,
+        ref_message_id: None,
     };
 
     state.inbox.add(msg.clone()).await;

@@ -1,8 +1,55 @@
-import { useState, useRef, type KeyboardEvent, type DragEvent } from "react";
+import { useState, useRef, useEffect, type KeyboardEvent, type DragEvent } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { useChat } from "../hooks/useChat";
 import { inboxIpc } from "../lib/inboxIpc";
-import { playSend } from "../lib/sounds";
+import { ipc } from "../lib/ipc";
+import { playSend, playSwitch } from "../lib/sounds";
+
+interface QuickAction {
+  command: string;
+  label: string;
+  agent: string;
+  template: string;
+}
+
+const QUICK_ACTIONS: QuickAction[] = [
+  {
+    command: "/summarize",
+    label: "Meeting Summary",
+    agent: "lead",
+    template: "Summarize this in three parts:\n1) Key decisions\n2) Next steps with owners\n3) Open questions\n\nText: ",
+  },
+  {
+    command: "/rewrite",
+    label: "Email Rewrite",
+    agent: "fixer",
+    template: "Rewrite this email to sound friendly and professional.\nKeep it under 100 words.\nStructure: greeting, point, ask, thanks.\n\nEmail: ",
+  },
+  {
+    command: "/plan",
+    label: "Task Planner",
+    agent: "lead",
+    template: "Break this task into clear steps with timelines and tools needed.\nEnd with a short checklist.\n\nTask: ",
+  },
+  {
+    command: "/report",
+    label: "Report Maker",
+    agent: "analyst",
+    template: "Turn this into a short report.\nInclude a title, summary, and 3 main points.\nKeep it easy to read.\n\nContent: ",
+  },
+  {
+    command: "/compare",
+    label: "Idea Comparison",
+    agent: "analyst",
+    template: "Give me three ways to handle this.\nCompare pros, cons, and time needed.\nThen tell me which one fits best.\n\nTopic: ",
+  },
+  {
+    command: "/clarify",
+    label: "Clarity Rewrite",
+    agent: "fixer",
+    template: "Rewrite this so it's clear and easy to understand.\nKeep my tone.\n\nText: ",
+  },
+];
 
 interface Attachment {
   name: string;
@@ -33,6 +80,8 @@ export function InputBar() {
   const [isDragging, setIsDragging] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
+  const [showPalette, setShowPalette] = useState(false);
+  const [paletteIdx, setPaletteIdx] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeAgentId = useAppStore((s) => s.activeAgentId);
@@ -44,9 +93,37 @@ export function InputBar() {
   const addHeartbeat = useAppStore((s) => s.addHeartbeat);
   const addInboxMessage = useAppStore((s) => s.addInboxMessage);
   const addActivity = useAppStore((s) => s.addActivity);
+  const setActiveAgent = useAppStore((s) => s.setActiveAgent);
   const { sendMessage } = useChat();
 
   const activeAgent = agents.find((a) => a.id === activeAgentId);
+
+  const filteredActions = QUICK_ACTIONS.filter((a) => {
+    if (!showPalette) return false;
+    const typed = input.toLowerCase();
+    return a.command.startsWith(typed);
+  });
+
+  useEffect(() => {
+    setPaletteIdx(0);
+  }, [input]);
+
+  const selectPaletteItem = (action: QuickAction) => {
+    setActiveAgent(action.agent);
+    ipc.switchAgent(action.agent).catch(console.error);
+    playSwitch();
+    setInput(action.template);
+    setShowPalette(false);
+    setPaletteIdx(0);
+    setTimeout(() => {
+      const ta = inputRef.current;
+      if (ta) {
+        ta.focus();
+        ta.selectionStart = ta.value.length;
+        ta.selectionEnd = ta.value.length;
+      }
+    }, 0);
+  };
 
   const processFiles = (files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -147,18 +224,39 @@ export function InputBar() {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (showPalette && filteredActions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setPaletteIdx((prev) => (prev + 1) % filteredActions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setPaletteIdx((prev) => (prev - 1 + filteredActions.length) % filteredActions.length);
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        selectPaletteItem(filteredActions[paletteIdx]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowPalette(false);
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-    // Arrow up — previous history
     if (e.key === "ArrowUp" && history.length > 0) {
       e.preventDefault();
       const newIdx = historyIdx === -1 ? history.length - 1 : Math.max(0, historyIdx - 1);
       setHistoryIdx(newIdx);
       setInput(history[newIdx]);
     }
-    // Arrow down — next history or clear
     if (e.key === "ArrowDown") {
       e.preventDefault();
       if (historyIdx === -1) return;
@@ -222,6 +320,31 @@ export function InputBar() {
         </div>
       )}
 
+      <div className="relative">
+        {showPalette && filteredActions.length > 0 && (
+          <div className="absolute bottom-full left-0 w-full bg-[#0a0a0a] border border-[#333] mb-1 z-50 font-mono text-xs">
+            {filteredActions.map((action, i) => (
+              <button
+                key={action.command}
+                type="button"
+                className={`w-full px-3 py-1 flex items-center justify-between glow-hover ${
+                  i === paletteIdx ? "bg-[#1a1a1a]" : ""
+                } hover:bg-[#1a1a1a]`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  selectPaletteItem(action);
+                }}
+                onMouseEnter={() => setPaletteIdx(i)}
+              >
+                <span className="text-[#4de8e0]">{action.command}</span>
+                <span className="text-[#808080] truncate mx-2">{action.label}</span>
+                <span className="text-[#555]">{action.agent}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="flex items-start gap-2">
         <div className="flex flex-col gap-1 mt-1">
           <button
@@ -236,7 +359,15 @@ export function InputBar() {
         <textarea
           ref={inputRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+          const val = e.target.value;
+          setInput(val);
+          if (val.startsWith("/") && !val.includes(" ")) {
+            setShowPalette(true);
+          } else {
+            setShowPalette(false);
+          }
+        }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={

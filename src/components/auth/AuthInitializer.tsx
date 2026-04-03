@@ -1,12 +1,5 @@
-import { useEffect } from "react";
-import { useAuthStore } from "../../store/useAuthStore";
-
+// Auth is now handled by ProtectedRoute directly via claude auth status.
+// This component is kept for backwards compatibility but does nothing.
 export function AuthInitializer() {
-  const initialize = useAuthStore((s) => s.initialize);
-
-  useEffect(() => {
-    initialize();
-  }, [initialize]);
-
   return null;
 }

@@ -1,12 +1,12 @@
 [package]
-name = "command-center"
+name = "cthulu-lab"
 version = "0.1.0"
-description = "AI Agent Command Center with Looney Tunes personalities"
+description = "AI Agent Cthulu Lab with Looney Tunes personalities"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "command_center_lib"
+name = "cthulu_lab_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -22,3 +22,5 @@ tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
+reqwest = { version = "0.12", features = ["json"] }
+base64 = "0.22"

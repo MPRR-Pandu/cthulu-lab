@@ -18,4 +18,6 @@ pub struct InboxMessage {
     pub content: String,
     pub timestamp: DateTime<Utc>,
     pub read: bool,
+    #[serde(default)]
+    pub ref_message_id: Option<String>,
 }

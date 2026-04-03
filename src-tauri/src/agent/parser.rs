@@ -47,12 +47,11 @@ pub fn load_all_agents(agents_dir: &Path) -> Vec<AgentConfig> {
 
     // Sort by a consistent order
     let order: HashMap<&str, usize> = [
-        ("planner", 0),
+        ("lead", 0),
         ("builder", 1),
-        ("fixer", 2),
-        ("reviewer", 3),
-        ("tester", 4),
-        ("specwriter", 5),
+        ("reviewer", 2),
+        ("fixer", 3),
+        ("analyst", 4),
     ]
     .into_iter()
     .collect();
@@ -157,21 +156,11 @@ fn extract_section(body: &str, marker: &str) -> String {
 
 fn get_agent_skin(id: &str) -> (&'static str, &'static str) {
     match id {
-        "lead" => ("owl", "Great Scott! Orchestrating the timeline"),
-        "planner" => ("dragon", "Wubba lubba dub dub — sees all dimensions"),
-        "specwriter" => ("snail", "Aw jeez, translating genius to human"),
-        "builder" => ("robot", "This is heavy — shipping at 88mph"),
-        "frontend" => ("cat", "Like, literally pixel-perfect UI"),
-        "backend" => ("turtle", "Make like a tree and build this API"),
-        "dba" => ("ghost", "Look at me! Solving your DB problem"),
-        "devops" => ("octopus", "You can't hide from deployment"),
-        "security" => ("axolotl", "Trusts nothing. Sees everything."),
-        "evaluator" => ("capybara", "Challenging mating season for this code"),
-        "tester" => ("mushroom", "I squanch your test suite!"),
-        "reviewer" => ("penguin", "Fascinating — and also has a bug"),
-        "fixer" => ("dragon", "I turned myself into a debugger, Morty!"),
-        "writer" => ("rabbit", "Surgical precision documentation"),
-        "analyst" => ("cactus", "1.21 gigawatts of calculations"),
-        _ => ("blob", "Wubba lubba dub dub"),
+        "lead" => ("owl", "Orchestrating the sprint"),
+        "builder" => ("robot", "Shipping full-stack code"),
+        "reviewer" => ("penguin", "Quality gate — no bugs pass"),
+        "fixer" => ("dragon", "Root cause found and fixed"),
+        "analyst" => ("cactus", "Data-driven recommendations"),
+        _ => ("blob", "Ready to work"),
     }
 }

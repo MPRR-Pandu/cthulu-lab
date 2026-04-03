@@ -1,5 +1,9 @@
 pub mod agent_cmds;
+pub mod auth_cmds;
 pub mod chat_cmds;
+pub mod gateway_cmds;
 pub mod inbox_cmds;
+pub mod issue_cmds;
 pub mod sandbox;
+pub mod skill_cmds;
 pub mod workspace_cmds;

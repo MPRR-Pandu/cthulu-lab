@@ -1,17 +1,16 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { workspaces } from '../lib/db.js';
-import { authenticate } from '../middleware/authenticate.js';
 
 const router = Router();
 
-router.use(authenticate);
+// No JWT auth — uses email param for user identification
 
 // List user's workspaces
-router.get('/', async (req: Request, res: Response) => {
+router.get('/:email', async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.userId;
-    const docs = await workspaces().find({ userId }).sort({ createdAt: 1 }).toArray();
+    const email = req.params.email;
+    const docs = await workspaces().find({ userId: email }).sort({ createdAt: 1 }).toArray();
     res.json({
       success: true,
       data: docs.map((d) => ({
@@ -30,35 +29,32 @@ router.get('/', async (req: Request, res: Response) => {
 // Add workspace
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.userId;
-    const { path } = req.body;
+    const { email, path } = req.body;
 
-    if (!path || typeof path !== 'string') {
-      res.status(400).json({ success: false, error: 'Path is required' });
+    if (!email || !path || typeof path !== 'string') {
+      res.status(400).json({ success: false, error: 'Email and path are required' });
       return;
     }
 
-    // Check duplicate
-    const existing = await workspaces().findOne({ userId, path });
+    const existing = await workspaces().findOne({ userId: email, path });
     if (existing) {
       res.status(409).json({ success: false, error: 'Workspace already exists' });
       return;
     }
 
-    // Deactivate all others, make this one active
-    await workspaces().updateMany({ userId }, { $set: { active: false } });
+    await workspaces().updateMany({ userId: email }, { $set: { active: false } });
 
     const name = path.split('/').filter(Boolean).pop() || path;
 
     await workspaces().insertOne({
-      userId,
+      userId: email,
       path,
       name,
       active: true,
       createdAt: new Date(),
     });
 
-    const docs = await workspaces().find({ userId }).sort({ createdAt: 1 }).toArray();
+    const docs = await workspaces().find({ userId: email }).sort({ createdAt: 1 }).toArray();
     res.status(201).json({
       success: true,
       data: docs.map((d) => ({
@@ -77,13 +73,12 @@ router.post('/', async (req: Request, res: Response) => {
 // Switch active workspace
 router.put('/active', async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.userId;
-    const { path } = req.body;
+    const { email, path } = req.body;
 
-    await workspaces().updateMany({ userId }, { $set: { active: false } });
-    await workspaces().updateOne({ userId, path }, { $set: { active: true } });
+    await workspaces().updateMany({ userId: email }, { $set: { active: false } });
+    await workspaces().updateOne({ userId: email, path }, { $set: { active: true } });
 
-    const docs = await workspaces().find({ userId }).sort({ createdAt: 1 }).toArray();
+    const docs = await workspaces().find({ userId: email }).sort({ createdAt: 1 }).toArray();
     res.json({
       success: true,
       data: docs.map((d) => ({
@@ -102,12 +97,11 @@ router.put('/active', async (req: Request, res: Response) => {
 // Remove workspace
 router.delete('/', async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.userId;
-    const { path } = req.body;
+    const { email, path } = req.body;
 
-    await workspaces().deleteOne({ userId, path });
+    await workspaces().deleteOne({ userId: email, path });
 
-    const docs = await workspaces().find({ userId }).sort({ createdAt: 1 }).toArray();
+    const docs = await workspaces().find({ userId: email }).sort({ createdAt: 1 }).toArray();
     res.json({
       success: true,
       data: docs.map((d) => ({

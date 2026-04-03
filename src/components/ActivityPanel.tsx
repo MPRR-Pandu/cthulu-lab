@@ -6,13 +6,10 @@ export function ActivityPanel() {
   const agents = useAppStore((s) => s.agents);
 
   return (
-    <div className="px-2 py-1.5 font-mono text-xs">
+    <div className="px-2 py-1 font-mono text-[10px]">
       <div className="text-[#808080]">── ACTIVITY ──</div>
-      {activityLog.length === 0 && (
-        <div className="text-[#333333] mt-1 italic">no activity yet</div>
-      )}
-      <div className="mt-0.5 max-h-[80px] overflow-y-auto">
-        {activityLog.slice(0, 8).map((entry, i) => {
+      <div className="mt-0.5 overflow-y-auto">
+        {activityLog.slice(0, 4).map((entry, i) => {
           const agent = agents.find((a) => a.id === entry.agent);
           const colors = agent ? getColor(agent.color) : getColor("blue");
           return (

@@ -7,8 +7,14 @@ import { InputBar } from "./components/InputBar";
 import { SwarmVisual } from "./components/SwarmVisual";
 import { RightPanel } from "./components/RightPanel";
 import { PermissionBanner } from "./components/PermissionBanner";
+import { AgentActivityLog } from "./components/AgentActivityLog";
+import { SkillSuggestion } from "./components/SkillSuggestion";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { GatewayPanel } from "./components/GatewayPanel";
 import { useAgents } from "./hooks/useAgents";
 import { useStreamListener } from "./hooks/useStreamListener";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useScheduler } from "./hooks/useScheduler";
 import { useAuthStore } from "./store/useAuthStore";
 import { useAppStore } from "./store/useAppStore";
 
@@ -34,7 +40,9 @@ function NoWorkspace() {
 function App() {
   useAgents();
   useStreamListener();
-  const [view, setView] = useState<"chat" | "swarm" | "split">("split");
+  useKeyboardShortcuts();
+  useScheduler();
+  const [view, setView] = useState<"chat" | "swarm" | "split" | "gateway">("split");
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
@@ -47,6 +55,7 @@ function App() {
 
   return (
     <div className="flex h-screen bg-black text-[#e0e0e0] font-mono">
+      <SettingsPanel />
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <div className="h-7 border-b border-[#333333] flex items-center justify-between px-2 text-xs">
@@ -74,6 +83,13 @@ function App() {
                 </button>
               </>
             )}
+            <span className="text-[#333333]">|</span>
+            <button
+              onClick={() => setView("gateway")}
+              className={`px-2 py-0.5 ${view === "gateway" ? "text-[#5ddb6e] text-glow" : "text-[#808080]"} hover:text-[#e0e0e0] glow-hover`}
+            >
+              [GATEWAY TO HEAVEN]
+            </button>
             <span className="text-[#333333] mx-1">|</span>
             {user && (
               <span className="text-[#808080] text-xs">{user.username}</span>
@@ -87,13 +103,19 @@ function App() {
           </div>
         </div>
 
-        {!hasWorkspace ? (
+        {view === "gateway" ? (
+          <div className="flex-1 overflow-y-auto p-4">
+            <GatewayPanel />
+          </div>
+        ) : !hasWorkspace ? (
           <NoWorkspace />
         ) : (
           <>
             {view === "chat" && (
               <>
                 <ChatArea />
+                <AgentActivityLog />
+                <SkillSuggestion />
                 <PermissionBanner />
                 <InputBar />
               </>
@@ -109,6 +131,8 @@ function App() {
               <div className="flex-1 flex min-h-0">
                 <div className="flex-1 flex flex-col min-w-0">
                   <ChatArea />
+                  <AgentActivityLog />
+                  <SkillSuggestion />
                   <PermissionBanner />
                   <InputBar />
                 </div>

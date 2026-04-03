@@ -22,6 +22,10 @@ interface AuthState {
   refreshAuth: () => Promise<boolean>;
   clearError: () => void;
   initialize: () => Promise<void>;
+
+  // Claude CLI auth
+  setUser: (user: User) => void;
+  setAuthenticated: (v: boolean) => void;
 }
 
 const KEYS = {
@@ -149,4 +153,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     set({ isLoading: false });
   },
+
+  // Claude CLI auth — simple setters
+  setUser: (user) => {
+    localStorage.setItem(KEYS.user, JSON.stringify(user));
+    set({ user });
+  },
+  setAuthenticated: (v) => set({ isAuthenticated: v, isLoading: false }),
 }));

@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    command_center_lib::run()
+    cthulu_lab_lib::run()
 }

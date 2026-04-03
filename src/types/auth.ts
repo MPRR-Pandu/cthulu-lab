@@ -1,7 +1,8 @@
 export interface User {
-  id: string;
+  id?: string;
   email: string;
   username: string;
+  subscription?: string;
 }
 
 export interface AuthResponse {

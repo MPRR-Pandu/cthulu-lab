@@ -26,13 +26,10 @@ export function QueuePanel() {
   };
 
   return (
-    <div className="px-2 py-1.5 font-mono text-xs">
+    <div className="px-2 py-1 font-mono text-[10px]">
       <div className="text-[#808080]">
         ── QUEUE ({queue.length}) ──
       </div>
-      {queue.length === 0 && (
-        <div className="text-[#333333] mt-1 italic">empty — use /lead to create tasks</div>
-      )}
       <div className="mt-0.5 overflow-y-auto">
         {queue.map((task, i) => {
           const agent = agents.find((a) => a.id === task.agent);

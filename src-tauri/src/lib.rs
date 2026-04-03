@@ -36,6 +36,7 @@ pub fn run() {
         speed_mode: Arc::new(RwLock::new("fast".to_string())),
         auto_approve: Arc::new(RwLock::new(false)),
         active_processes: Arc::new(RwLock::new(HashMap::new())),
+        budget_cap: Arc::new(RwLock::new(5.0)),
     };
 
     tauri::Builder::default()
@@ -51,6 +52,7 @@ pub fn run() {
             commands::chat_cmds::set_speed_mode,
             commands::chat_cmds::set_auto_approve,
             commands::chat_cmds::respond_permission,
+            commands::chat_cmds::set_budget_cap,
             commands::inbox_cmds::get_inbox,
             commands::inbox_cmds::send_inbox_message,
             commands::inbox_cmds::mark_inbox_read,
@@ -59,7 +61,23 @@ pub fn run() {
             commands::workspace_cmds::add_workspace,
             commands::workspace_cmds::remove_workspace,
             commands::workspace_cmds::get_active_workspace,
+            commands::issue_cmds::list_issues,
+            commands::issue_cmds::set_integration_token,
+            commands::issue_cmds::get_integration_status,
+            commands::issue_cmds::fetch_notion_tasks,
+            commands::issue_cmds::fetch_linear_issues,
+            commands::skill_cmds::list_skills,
+            commands::skill_cmds::create_skill,
+            commands::skill_cmds::delete_skill,
+            commands::auth_cmds::claude_auth_status,
+            commands::auth_cmds::read_keychain_token,
+            commands::auth_cmds::claude_login,
+            commands::gateway_cmds::gateway_health,
+            commands::gateway_cmds::gateway_list_vms,
+            commands::gateway_cmds::gateway_create_vm,
+            commands::gateway_cmds::gateway_delete_vm,
+            commands::gateway_cmds::gateway_exec,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Command Center");
+        .expect("error while running Cthulu Lab");
 }

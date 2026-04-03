@@ -1,85 +1,112 @@
-import { useState, type FormEvent } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/useAuthStore";
+import { checkClaudeAuth } from "../../lib/claudeAuth";
 import { AuthLayout } from "./AuthLayout";
 
 export function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const login = useAuthStore((s) => s.login);
-  const isLoading = useAuthStore((s) => s.isLoading);
-  const error = useAuthStore((s) => s.error);
-  const clearError = useAuthStore((s) => s.clearError);
+  const [checking, setChecking] = useState(true);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const successMsg = (location.state as { message?: string })?.message;
+  useEffect(() => {
+    checkAuth();
+  }, []);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    clearError();
-    const ok = await login(email, password);
-    if (ok) navigate("/");
+  const checkAuth = async () => {
+    setChecking(true);
+    setError(null);
+    try {
+      const status = await checkClaudeAuth();
+
+      if (status.loggedIn) {
+        setLoggedIn(true);
+        useAuthStore.getState().setUser({
+          email: status.email,
+          username: status.email.split("@")[0],
+          subscription: status.subscriptionType,
+        });
+        useAuthStore.getState().setAuthenticated(true);
+        setTimeout(() => navigate("/"), 500);
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleCopyCommand = () => {
+    navigator.clipboard.writeText("claude auth login").then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   };
 
   return (
     <AuthLayout>
       <div className="mb-6">
-        <h1 className="text-[#5dadec] text-lg font-bold">{"> LOGIN_"}</h1>
-        <p className="text-[#555] text-xs mt-1">authenticate to access command center</p>
+        <h1 className="text-[#5dadec] text-lg font-bold text-glow">{"> CTHULU LAB_"}</h1>
+        <p className="text-[#555] text-xs mt-1">authenticate with your Claude account</p>
       </div>
 
-      {successMsg && (
-        <div className="text-[#5dadec] text-xs mb-4 border border-[#333333] px-3 py-2">
-          {successMsg}
-        </div>
-      )}
-
       {error && (
-        <div className="text-[#ff6b6b] text-xs mb-4 border border-[#ff6b6b]/30 px-3 py-2">
+        <div className="text-[#ff6b6b] text-xs mb-4 border border-[#ff6b6b]/30 px-3 py-2 break-all">
           [ERROR] {error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <div>
-          <label className="text-[#808080] text-xs block mb-1">EMAIL</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="w-full bg-transparent border-b border-[#555] text-[#e0e0e0] font-mono py-1.5 focus:border-[#5dadec] outline-none transition-colors"
-            placeholder="user@domain.com"
-          />
+      {checking ? (
+        <div className="text-center py-8">
+          <p className="text-[#5dadec] text-sm animate-pulse">[■■■□□□] CHECKING AUTH...</p>
+          <p className="text-[#555] text-xs mt-2">running claude auth status</p>
         </div>
-
-        <div>
-          <label className="text-[#808080] text-xs block mb-1">PASSWORD</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            className="w-full bg-transparent border-b border-[#555] text-[#e0e0e0] font-mono py-1.5 focus:border-[#5dadec] outline-none transition-colors"
-            placeholder="••••••••"
-          />
+      ) : loggedIn ? (
+        <div className="text-center py-8">
+          <p className="text-[#5ddb6e] text-sm">[✓] AUTHENTICATED</p>
+          <p className="text-[#555] text-xs mt-2 animate-pulse">redirecting...</p>
         </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="border border-[#333] p-4 bg-[#0a0a0a]">
+            <div className="text-[#808080] text-xs mb-3">
+              Run this in your terminal to login:
+            </div>
 
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="w-full bg-[#5dadec] text-black font-mono font-bold px-4 py-2 hover:bg-[#4a9ad9] disabled:opacity-50 transition-colors"
-        >
-          {isLoading ? "[■■■□□□] AUTHENTICATING..." : "[ENTER] LOGIN"}
-        </button>
-      </form>
+            <div className="flex items-center gap-2 mb-3">
+              <code className="flex-1 bg-[#111] border border-[#333] px-3 py-2 text-[#4de8e0] text-sm">
+                claude auth login
+              </code>
+              <button
+                onClick={handleCopyCommand}
+                className="px-2 py-2 border border-[#333] text-[#808080] hover:text-[#4de8e0] hover:border-[#4de8e0]/40 text-xs glow-hover"
+              >
+                {copied ? "✓" : "COPY"}
+              </button>
+            </div>
 
-      <div className="mt-6 text-xs">
-        <Link to="/register" className="text-[#5dadec] hover:underline">
-          {">"} CREATE ACCOUNT
-        </Link>
-      </div>
+            <div className="text-[#555] text-[10px] space-y-1">
+              <p>1. Open Terminal</p>
+              <p>2. Run <span className="text-[#4de8e0]">claude auth login</span></p>
+              <p>3. Login with your Claude Pro/Max account in the browser</p>
+              <p>4. Come back here and click CHECK below</p>
+            </div>
+          </div>
+
+          <button
+            onClick={checkAuth}
+            className="w-full bg-[#4de8e0] text-black font-mono font-bold px-4 py-2.5 hover:bg-[#3dd4cc] transition-colors glow-active-pulse"
+          >
+            [⟳] CHECK LOGIN STATUS
+          </button>
+
+          <div className="text-[#333] text-[10px] text-center">
+            requires Claude Pro or Max subscription
+          </div>
+        </div>
+      )}
     </AuthLayout>
   );
 }
