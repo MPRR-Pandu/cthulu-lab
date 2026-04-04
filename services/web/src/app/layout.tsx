@@ -10,6 +10,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Cthulu Lab",
   description: "AI-Powered Workflow Automation for Your VM",
+  icons: { icon: "/favicon.png" },
 };
 
 export default function RootLayout({

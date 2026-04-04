@@ -116,19 +116,35 @@ export function WorkflowWorkspace({ email, globalWebhook, vmId }: Props) {
     }
   }, [selectedId]);
 
+  const ensureCron = async () => {
+    await execInVm(vmId, "which crontab >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq cron >/dev/null 2>&1 && service cron start 2>/dev/null; echo OK)");
+  };
+
   const deployScriptToVm = async (workflowId: string, scriptPath: string, schedule?: string, wfName?: string) => {
     try {
       const scriptData = await getWorkflowScript(workflowId);
       if (!scriptData) return;
       const scriptB64 = btoa(scriptData.script);
       const dir = scriptData.scriptPath.replace('/run.sh', '');
-      const deployCmd = `mkdir -p ${dir} && echo '${scriptB64}' | base64 -d > ${scriptData.scriptPath} && chmod +x ${scriptData.scriptPath} && echo DEPLOYED`;
-      await execInVm(vmId, deployCmd);
+
+      // Step 1: create directory
+      await execInVm(vmId, `mkdir -p ${dir}`);
+
+      // Step 2: write base64 to a temp file, decode to script
+      // Use printf to avoid echo interpretation issues, pipe to base64 -d
+      await execInVm(vmId, `printf '%s' "${scriptB64}" | base64 -d > ${scriptData.scriptPath}`);
+
+      // Step 3: make executable and verify
+      const verify = await execInVm(vmId, `chmod +x ${scriptData.scriptPath} && wc -c < ${scriptData.scriptPath}`);
+      if (!verify.stdout.trim() || verify.stdout.trim() === '0') {
+        throw new Error('Script file is empty after deploy');
+      }
 
       if (schedule && schedule !== 'manual') {
+        await ensureCron();
         const safeName = (wfName || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         const safeEmail = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        const cronCmd = `(crontab -l 2>/dev/null | grep -v '${safeName}/run.sh'; echo "${schedule} ${scriptPath} >> /root/workflows/${safeEmail}/${safeName}/cron.log 2>&1") | crontab -`;
+        const cronCmd = `service cron start 2>/dev/null; (crontab -l 2>/dev/null | grep -v '${safeName}/run.sh'; echo "${schedule} ${scriptPath} >> /root/workflows/${safeEmail}/${safeName}/cron.log 2>&1") | crontab -`;
         await execInVm(vmId, cronCmd);
       }
     } catch (err) {
@@ -147,10 +163,9 @@ export function WorkflowWorkspace({ email, globalWebhook, vmId }: Props) {
       schedule,
       sink: "slack",
       sinkConfig: { type: "slack", webhookUrl: customWebhook || "$SLACK_WEBHOOK_URL" },
-      active: true,
+      active: false, // Created disabled — user enables to deploy + cron
     });
     if (result.success && result.id) {
-      await deployScriptToVm(result.id, result.scriptPath || '', schedule, name.trim());
       playSuccess();
       setName("");
       setSteps([{ type: "fetch", name: "", command: "" }]);
@@ -168,21 +183,29 @@ export function WorkflowWorkspace({ email, globalWebhook, vmId }: Props) {
     try {
       const newActive = !wf.active;
       const result = await toggleWorkflow(wf.id, newActive);
-      if (result.success && result.scriptPath) {
-        const safeName = (result.name || wf.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        const safeEmail = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        if (newActive && result.schedule && result.schedule !== 'manual') {
-          const cronCmd = `(crontab -l 2>/dev/null | grep -v '${safeName}/run.sh'; echo "${result.schedule} ${result.scriptPath} >> /root/workflows/${safeEmail}/${safeName}/cron.log 2>&1") | crontab -`;
-          await execInVm(vmId, cronCmd);
-        } else {
-          const cronCmd = `(crontab -l 2>/dev/null | grep -v '${safeName}/run.sh') | crontab - 2>/dev/null; echo OK`;
+      if (!result.success) { playError(); return; }
+
+      const sp = result.scriptPath || wf.scriptPath || '';
+      const safeName = (result.name || wf.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const safeEmail = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+      if (newActive) {
+        // ENABLE: deploy script to VM + set cron
+        await deployScriptToVm(wf.id, sp, result.schedule || wf.schedule, result.name || wf.name);
+
+        if (result.schedule && result.schedule !== 'manual') {
+          await ensureCron();
+          const cronCmd = `service cron start 2>/dev/null; (crontab -l 2>/dev/null | grep -v '${safeName}/run.sh'; echo "${result.schedule} ${sp} >> /root/workflows/${safeEmail}/${safeName}/cron.log 2>&1") | crontab -`;
           await execInVm(vmId, cronCmd);
         }
-        playSuccess();
-        await refresh();
       } else {
-        playError();
+        // DISABLE: remove cron entry
+        const cronCmd = `(crontab -l 2>/dev/null | grep -v '${safeName}/run.sh') | crontab - 2>/dev/null; echo OK`;
+        await execInVm(vmId, cronCmd);
       }
+
+      playSuccess();
+      await refresh();
     } catch {
       playError();
     }
@@ -238,53 +261,85 @@ export function WorkflowWorkspace({ email, globalWebhook, vmId }: Props) {
       }
     }
 
-    const runData = await runWorkflow(id);
-    if (runData) {
-      playSuccess();
-      setBottomTab("logs");
-      await refresh();
+    setRunMessage(null);
+    let runData;
+    try {
+      runData = await runWorkflow(id);
+    } catch (err) {
+      setRunMessage(`Run failed: ${err}`);
+      playError();
+      return;
+    }
 
-      (async () => {
-        try {
-          const result = await execInVm(vmId, runData.scriptPath || 'echo "no script"');
-          const stdout = result.stdout || '';
-          const stderr = result.stderr || '';
-          const parts = stdout.split('---OUTPUT---');
-          const trace = parts[0] || '';
-          const claudeOutput = (parts[1] || '').trim();
+    if (!runData) {
+      setRunMessage("Run failed — backend returned no data. Check connection.");
+      playError();
+      return;
+    }
 
-          const stepResults = trace.split('\n').filter(l => l.startsWith('[')).map(l => ({
-            type: l.replace(/\[.*?\]\s*/, ''),
-            output: l,
+    if (!runData.scriptPath) {
+      setRunMessage("No script path — re-save the workflow first.");
+      playError();
+      return;
+    }
+
+    playSuccess();
+    setBottomTab("logs");
+    await refresh();
+
+    // Deploy script to VM first (in case it's missing), then execute
+    (async () => {
+      try {
+        // Ensure script is deployed
+        await deployScriptToVm(id, runData.scriptPath!, undefined, undefined);
+
+        // Run it via bash (explicit shell in case exec bit is lost)
+        const result = await execInVm(vmId, `bash ${runData.scriptPath}`);
+        const stdout = result.stdout || '';
+        const stderr = result.stderr || '';
+        const parts = stdout.split('---OUTPUT---');
+        const trace = parts[0] || '';
+        const claudeOutput = (parts[1] || '').trim();
+
+        const stepResults = trace.split('\n').filter(l => l.trim()).map(l => {
+          const tsMatch = l.match(/^\[(\d{2}:\d{2}:\d{2})\]\s*(.*)/);
+          const time = tsMatch ? tsMatch[1] : '';
+          const rest = tsMatch ? tsMatch[2] : l;
+          const [kind, ...detail] = rest.split(':');
+          return {
+            type: kind.trim(),
+            output: detail.join(':').trim() || rest,
             durationMs: 0,
-          }));
+            _time: time,
+          };
+        });
 
-          const status = result.exit_code === 0 ? 'success' : 'failed';
-          await saveRunResult(id, runData.runId, {
-            status,
-            stepResults,
-            finalOutput: (claudeOutput || stderr || trace.slice(-500)).slice(0, 2000),
-          });
+        const status = result.exit_code === 0 ? 'success' : 'failed';
+        await saveRunResult(id, runData.runId, {
+          status,
+          stepResults,
+          finalOutput: (claudeOutput || stderr || trace.slice(-500)).slice(0, 2000),
+        });
 
-          if (status === 'success') playSuccess();
-          else playError();
-        } catch (err) {
-          await saveRunResult(id, runData.runId, {
-            status: 'failed',
-            stepResults: [{ type: 'error', output: String(err), durationMs: 0 }],
-            finalOutput: String(err),
-          });
-          playError();
-        }
-        await refresh();
-        const updated = await listWorkflows(email);
-        const wfUpdated = updated.find(w => w.id === id);
-        if (wfUpdated) {
-          setLogs(wfUpdated.runs);
-          setWorkflows(prev => prev.map(w => w.id === id ? wfUpdated : w));
-        }
-      })();
-    } else { playError(); }
+        if (status === 'success') playSuccess();
+        else { setRunMessage(`Script exited with code ${result.exit_code}`); playError(); }
+      } catch (err) {
+        await saveRunResult(id, runData.runId, {
+          status: 'failed',
+          stepResults: [{ type: 'error', output: String(err), durationMs: 0 }],
+          finalOutput: String(err),
+        }).catch(() => {});
+        setRunMessage(`Exec failed: ${err}`);
+        playError();
+      }
+      await refresh();
+      const updated = await listWorkflows(email);
+      const wfUpdated = updated.find(w => w.id === id);
+      if (wfUpdated) {
+        setLogs(wfUpdated.runs);
+        setWorkflows(prev => prev.map(w => w.id === id ? wfUpdated : w));
+      }
+    })();
   };
 
   const addStep = (type: "fetch" | "claude") => {
@@ -591,30 +646,57 @@ export function WorkflowWorkspace({ email, globalWebhook, vmId }: Props) {
                     <div className="text-[10px] text-[#555]">no runs yet — click [RUN]</div>
                   ) : (
                     logs.map((run) => (
-                      <div key={run.id} className="mb-2 border-b border-[#1a1a1a] pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-[#555]">
-                            [{new Date(run.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}]
-                          </span>
-                          <span className={`text-[10px] ${run.status === "success" ? "text-[#5ddb6e]" : run.status === "failed" ? "text-[#f06060]" : "text-[#e8d44d] animate-pulse"}`}>
-                            {run.status === "success" ? "\u2713 success" : run.status === "failed" ? "\u2717 failed" : "\u25CF running"}
-                          </span>
+                      <div key={run.id} className="mb-3 border border-[#1a1a1a] bg-[#0a0a0a]">
+                        {/* Run header */}
+                        <div className="flex items-center justify-between px-2 py-1 border-b border-[#1a1a1a] bg-[#111]">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-bold ${run.status === "success" ? "text-[#5ddb6e]" : run.status === "failed" ? "text-[#f06060]" : "text-[#e8d44d] animate-pulse"}`}>
+                              {run.status === "success" ? "\u2713 SUCCESS" : run.status === "failed" ? "\u2717 FAILED" : "\u25CF RUNNING"}
+                            </span>
+                            <span className="text-[10px] text-[#555]">
+                              {new Date(run.startedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}
+                            </span>
+                          </div>
                           {run.completedAt && (
-                            <span className="text-[10px] text-[#333]">
+                            <span className="text-[10px] text-[#4de8e0]">
                               {Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s
                             </span>
                           )}
                         </div>
-                        {run.stepResults.map((sr, j) => (
-                          <div key={j} className="ml-3 mt-0.5 text-[10px]">
-                            <span className="text-[#808080]">{sr.type}:</span>
-                            <span className="text-[#555] ml-1">{sr.output.slice(0, 80)}{sr.output.length > 80 ? "..." : ""}</span>
-                            <span className="text-[#333] ml-1">({sr.durationMs}ms)</span>
-                          </div>
-                        ))}
+
+                        {/* Step trace */}
+                        <div className="px-2 py-1 font-mono">
+                          {run.stepResults.map((sr, j) => {
+                            const time = (sr as unknown as { _time?: string })._time || '';
+                            const isFail = sr.type === "FAILED" || sr.type === "error";
+                            const isOk = sr.type === "OK";
+                            const isStep = ["FETCH", "CLAUDE", "SLACK"].includes(sr.type);
+                            return (
+                              <div key={j} className="flex items-start gap-1 leading-4 text-[10px]">
+                                {time && <span className="text-[#333] shrink-0">{time}</span>}
+                                <span className={`shrink-0 font-bold w-14 ${
+                                  isFail ? "text-[#f06060]" :
+                                  isOk ? "text-[#5ddb6e]" :
+                                  isStep ? "text-[#4de8e0]" :
+                                  "text-[#808080]"
+                                }`}>
+                                  {sr.type}
+                                </span>
+                                <span className={isFail ? "text-[#f06060]" : "text-[#808080]"}>
+                                  {sr.output}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Final output */}
                         {run.finalOutput && (
-                          <div className="ml-3 mt-1 text-[10px] text-[#e0e0e0] bg-[#0a0a0a] border border-[#222] p-1.5">
-                            {run.finalOutput}
+                          <div className="border-t border-[#1a1a1a] px-2 py-1.5">
+                            <div className="text-[9px] text-[#555] mb-0.5">OUTPUT</div>
+                            <pre className="text-[10px] text-[#e0e0e0] whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto">
+                              {run.finalOutput}
+                            </pre>
                           </div>
                         )}
                       </div>

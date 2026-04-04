@@ -111,13 +111,6 @@ export function TopBar() {
           [{speedMode === "fast" ? "FAST" : "DEEP"}]
         </button>
         <VoiceToggle />
-        <button
-          onClick={() => { playClick(); useAppStore.getState().setSettingsOpen(true); }}
-          className="text-[#808080] hover:text-[#e0e0e0] glow-hover glow-click"
-          title="Settings (Cmd+,)"
-        >
-          [SETTINGS<span className="text-[#333] ml-0.5">&#8984;,</span>]
-        </button>
       </div>
     </div>
   );

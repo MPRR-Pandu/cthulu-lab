@@ -4,8 +4,19 @@ import { getUserVm, saveUserVm, deleteUserVm, updateSlackWebhook } from "../lib/
 import type { VM, GatewayHealth } from "../lib/gatewayApi";
 import type { UserVm } from "../lib/userVmApi";
 import { useAuthStore } from "../store/useAuthStore";
+import { getGatewayUrl } from "../lib/config";
 import { playClick, playSuccess, playError } from "../lib/sounds";
 import { WorkflowWorkspace } from "./WorkflowWorkspace";
+
+/** Build terminal URL from gateway host (settings) + VM web port — never use private IP */
+function resolveTerminalUrl(vm: UserVm): string {
+  const gw = getGatewayUrl();
+  if (!gw || !vm.webPort) return "";
+  try {
+    const u = new URL(gw);
+    return `${u.protocol}//${u.hostname}:${vm.webPort}`;
+  } catch { return ""; }
+}
 
 type AuthState = "unknown" | "syncing" | "authed" | "not_authed" | "error";
 
@@ -19,10 +30,11 @@ export function GatewayPanel() {
   const [tier, setTier] = useState("nano");
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [vmError, setVmError] = useState<string | null>(null);
 
+  const [showTerminal, setShowTerminal] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("unknown");
   const [authError, setAuthError] = useState<string | null>(null);
-  const [showTerminal, setShowTerminal] = useState(false);
 
   // Slack alert setup
   const [slackWebhook, setSlackWebhook] = useState("");
@@ -56,29 +68,64 @@ export function GatewayPanel() {
   const handleCreate = async () => {
     if (!email) return;
     setCreating(true);
+    setVmError(null);
     playClick();
-    const vm = await createVM(tier);
-    if (vm) {
-      const saved = await saveUserVm({
-        email, vmId: vm.vm_id, tier: vm.tier,
-        sshPort: vm.ssh_port, webPort: vm.web_port,
-        sshCommand: "", webTerminal: vm.web_terminal,
-      });
-      if (saved) { playSuccess(); await refresh(); }
-      else { await deleteVM(vm.vm_id); playError(); }
-    } else { playError(); }
+    try {
+      const vm = await createVM(tier);
+
+      // Init VM with essential tools
+      try {
+        await execInVm(vm.vm_id, [
+          "apt-get update -qq",
+          "apt-get install -y -qq cron curl python3 jq git ca-certificates >/dev/null 2>&1",
+          "service cron start 2>/dev/null",
+          "mkdir -p /root/workflows",
+          "echo VM_INIT_OK",
+        ].join(" && "));
+      } catch {
+        // Non-fatal — tools might already exist
+      }
+
+      try {
+        const saved = await saveUserVm({
+          email, vmId: vm.vm_id, tier: vm.tier,
+          sshPort: vm.ssh_port, webPort: vm.web_port,
+          sshCommand: "", webTerminal: vm.web_terminal,
+        });
+        if (saved) {
+          playSuccess();
+          await refresh();
+        } else {
+          setVmError("VM created but failed to save mapping. Check backend connection.");
+          await deleteVM(vm.vm_id).catch(() => {});
+          playError();
+        }
+      } catch (saveErr) {
+        setVmError(`VM created but save failed: ${saveErr}`);
+        await deleteVM(vm.vm_id).catch(() => {});
+        playError();
+      }
+    } catch (err) {
+      setVmError(String(err));
+      playError();
+    }
     setCreating(false);
   };
 
   const handleDelete = async () => {
     if (!myVm) return;
     playClick();
-    if (await deleteVM(myVm.vmId)) {
+    setVmError(null);
+    try {
+      await deleteVM(myVm.vmId);
       await deleteUserVm(email);
       playSuccess();
       setMyVm(null); setLiveVm(null); setAuthState("unknown");
       await refresh();
-    } else { playError(); }
+    } catch (err) {
+      setVmError(`Delete failed: ${err}`);
+      playError();
+    }
   };
 
   // ── SYNC AUTH: Keychain → exec → VM ──
@@ -149,6 +196,9 @@ export function GatewayPanel() {
   const handleSetupSlack = async () => {
     if (!myVm || !slackWebhook.trim()) return;
     playClick();
+
+    // Ensure cron is installed on VM
+    await execInVm(myVm.vmId, "which crontab >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq cron >/dev/null 2>&1 && service cron start 2>/dev/null; echo OK)");
 
     const webhook = slackWebhook.trim();
 
@@ -303,19 +353,37 @@ export function GatewayPanel() {
               </div>
 
               {/* Embedded terminal */}
-              {myVm && (
-                <div className="mt-2" style={{ display: showTerminal ? "block" : "none" }}>
-                  <div className="text-[10px] text-[#555] mb-1">
-                    run <span className="text-[#4de8e0]">claude auth status</span> to verify
+              {showTerminal && (() => {
+                const termUrl = resolveTerminalUrl(myVm!);
+                return termUrl ? (
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-[#555]">
+                        run <span className="text-[#4de8e0]">claude auth status</span> to verify
+                      </span>
+                      <button
+                        onClick={async () => {
+                          const { open } = await import("@tauri-apps/plugin-shell");
+                          await open(termUrl);
+                        }}
+                        className="text-[10px] text-[#4de8e0] hover:text-[#7ffff8]"
+                      >
+                        [OPEN IN BROWSER]
+                      </button>
+                    </div>
+                    <iframe
+                      src={termUrl}
+                      className="w-full border border-[#333] bg-black"
+                      style={{ height: "300px" }}
+                      title="VM Terminal"
+                    />
                   </div>
-                  <iframe
-                    src={myVm.webTerminal}
-                    className="w-full border border-[#333] bg-black"
-                    style={{ height: "200px" }}
-                    title="VM Terminal"
-                  />
-                </div>
-              )}
+                ) : (
+                  <div className="mt-2 text-[#f06060] text-[10px]">
+                    Terminal URL unavailable. Set Gateway URL in Settings.
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>
@@ -336,6 +404,16 @@ export function GatewayPanel() {
               {creating ? "CREATING..." : "CREATE MY VM"}
             </button>
           </div>
+          {!isOnline && (
+            <div className="text-[#f06060] text-[10px] mt-2">
+              Gateway offline. Set your VM Gateway URL in Settings &gt; Connection first.
+            </div>
+          )}
+          {vmError && (
+            <div className="text-[#f06060] text-[10px] mt-2 border border-[#f06060]/30 px-2 py-1 break-all">
+              {vmError}
+            </div>
+          )}
         </div>
       )}
 

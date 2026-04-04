@@ -1,13 +1,22 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getApiUrl } from "./config";
 
-function getAuthHeaders(): Record<string, string> {
-  const token = localStorage.getItem("auth_access_token");
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  return headers;
+/** All API calls go through Rust reqwest to bypass browser CORS */
+async function api<T = unknown>(
+  path: string,
+  method: string = "GET",
+  body?: unknown,
+): Promise<T> {
+  const raw = await invoke<string>("api_proxy", {
+    apiBase: getApiUrl(),
+    path,
+    method,
+    body: body ? JSON.stringify(body) : null,
+  });
+  return JSON.parse(raw) as T;
 }
+
+interface ApiRes<T> { success: boolean; data: T; error?: string }
 
 export interface WorkflowStep {
   type: 'fetch' | 'claude';
@@ -46,100 +55,85 @@ export interface Workflow {
 
 export async function listWorkflows(email: string): Promise<Workflow[]> {
   try {
-    const res = await fetch(`${getApiUrl()}/workflows/list/${encodeURIComponent(email)}`, {
-      headers: getAuthHeaders(),
-    });
-    const data = await res.json();
-    return data.success ? data.data : [];
+    const res = await api<ApiRes<Workflow[]>>(`/workflows/list/${encodeURIComponent(email)}`);
+    return res.success ? res.data : [];
   } catch { return []; }
 }
 
-export async function createWorkflow(wf: Omit<Workflow, 'id' | 'runs' | 'createdAt' | 'scriptPath'>): Promise<{ success: boolean; id?: string; scriptPath?: string }> {
+export async function createWorkflow(
+  wf: Omit<Workflow, 'id' | 'runs' | 'createdAt' | 'scriptPath'>,
+): Promise<{ success: boolean; id?: string; scriptPath?: string; error?: string }> {
   try {
-    const res = await fetch(`${getApiUrl()}/workflows`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify(wf),
-    });
-    const data = await res.json();
-    return { success: data.success, id: data.data?.id, scriptPath: data.data?.scriptPath };
-  } catch { return { success: false }; }
+    const res = await api<ApiRes<{ id: string; scriptPath?: string }>>("/workflows", "POST", wf);
+    return { success: res.success, id: res.data?.id, scriptPath: res.data?.scriptPath };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
 }
 
-export async function updateWorkflow(id: string, body: { name: string; steps: WorkflowStep[]; schedule: string; sink: string; sinkConfig?: SinkConfig }): Promise<{ success: boolean; scriptPath?: string }> {
+export async function updateWorkflow(
+  id: string,
+  body: { name: string; steps: WorkflowStep[]; schedule: string; sink: string; sinkConfig?: SinkConfig },
+): Promise<{ success: boolean; scriptPath?: string }> {
   try {
-    const res = await fetch(`${getApiUrl()}/workflows/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      headers: getAuthHeaders(),
-      body: JSON.stringify(body),
-    });
-    const d = await res.json();
-    return { success: d.success, scriptPath: d.data?.scriptPath };
+    const res = await api<ApiRes<{ scriptPath?: string }>>(`/workflows/${encodeURIComponent(id)}`, "PUT", body);
+    return { success: res.success, scriptPath: res.data?.scriptPath };
   } catch { return { success: false }; }
 }
 
 export async function deleteWorkflow(id: string): Promise<{ success: boolean; scriptPath?: string; name?: string }> {
   try {
-    const res = await fetch(`${getApiUrl()}/workflows/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      headers: getAuthHeaders(),
-    });
-    const data = await res.json();
-    return { success: data.success, scriptPath: data.data?.scriptPath, name: data.data?.name };
+    const res = await api<ApiRes<{ scriptPath?: string; name?: string }>>(`/workflows/${encodeURIComponent(id)}`, "DELETE");
+    return { success: res.success, scriptPath: res.data?.scriptPath, name: res.data?.name };
   } catch { return { success: false }; }
 }
 
 export async function runWorkflow(id: string): Promise<{ runId: string; scriptPath: string } | null> {
   try {
-    const res = await fetch(`${getApiUrl()}/workflows/${encodeURIComponent(id)}/run`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-    });
-    const data = await res.json();
-    return data.success ? { runId: data.data.runId, scriptPath: data.data.scriptPath } : null;
+    const res = await api<ApiRes<{ runId: string; scriptPath: string }>>(`/workflows/${encodeURIComponent(id)}/run`, "POST");
+    return res.success ? res.data : null;
   } catch { return null; }
 }
 
-export async function saveRunResult(workflowId: string, runId: string, result: { status: string; stepResults: any[]; finalOutput: string }): Promise<boolean> {
+export async function saveRunResult(
+  workflowId: string,
+  runId: string,
+  result: { status: string; stepResults: unknown[]; finalOutput: string },
+): Promise<boolean> {
   try {
-    const res = await fetch(`${getApiUrl()}/workflows/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`, {
-      method: "PUT",
-      headers: getAuthHeaders(),
-      body: JSON.stringify(result),
-    });
-    const data = await res.json();
-    return data.success;
+    const res = await api<ApiRes<unknown>>(
+      `/workflows/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`,
+      "PUT",
+      result,
+    );
+    return res.success;
   } catch { return false; }
 }
 
 export async function getWorkflowScript(id: string): Promise<{ script: string; scriptPath: string } | null> {
   try {
-    const res = await fetch(`${getApiUrl()}/workflows/${encodeURIComponent(id)}/script`, {
-      headers: getAuthHeaders(),
-    });
-    const data = await res.json();
-    return data.success ? data.data : null;
+    const res = await api<ApiRes<{ script: string; scriptPath: string }>>(`/workflows/${encodeURIComponent(id)}/script`);
+    return res.success ? res.data : null;
   } catch { return null; }
 }
 
 export async function getWorkflowRuns(id: string): Promise<WorkflowRun[]> {
   try {
-    const res = await fetch(`${getApiUrl()}/workflows/${encodeURIComponent(id)}/runs`, {
-      headers: getAuthHeaders(),
-    });
-    const data = await res.json();
-    return data.success ? data.data : [];
+    const res = await api<ApiRes<WorkflowRun[]>>(`/workflows/${encodeURIComponent(id)}/runs`);
+    return res.success ? res.data : [];
   } catch { return []; }
 }
 
-export async function toggleWorkflow(id: string, active: boolean): Promise<{ success: boolean; scriptPath?: string; schedule?: string; name?: string }> {
+export async function toggleWorkflow(
+  id: string,
+  active: boolean,
+): Promise<{ success: boolean; scriptPath?: string; schedule?: string; name?: string }> {
   try {
-    const res = await fetch(`${getApiUrl()}/workflows/${encodeURIComponent(id)}/toggle`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ active }),
-    });
-    const data = await res.json();
-    return { success: data.success, scriptPath: data.data?.scriptPath, schedule: data.data?.schedule, name: data.data?.name };
+    const res = await api<ApiRes<{ scriptPath?: string; schedule?: string; name?: string }>>(
+      `/workflows/${encodeURIComponent(id)}/toggle`,
+      "POST",
+      { active },
+    );
+    return { success: res.success, scriptPath: res.data?.scriptPath, schedule: res.data?.schedule, name: res.data?.name };
   } catch { return { success: false }; }
 }

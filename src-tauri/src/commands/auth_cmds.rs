@@ -51,26 +51,59 @@ pub struct ClaudeAuthStatus {
 
 #[tauri::command]
 pub async fn claude_auth_status() -> Result<ClaudeAuthStatus, String> {
-    let claude = get_claude_path();
-
-    let output = Command::new(claude)
-        .args(["auth", "status"])
-        .env("HOME", std::env::var("HOME").unwrap_or_default())
-        .env("PATH", std::env::var("PATH").unwrap_or_else(|_|
-            "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/sbin".to_string()
-        ))
+    // Read from macOS Keychain — always works, no PATH issues
+    let output = Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
         .output()
         .await
-        .map_err(|e| format!("Claude CLI not found at {}: {}", claude, e))?;
+        .map_err(|e| format!("Keychain access failed: {}", e))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Auth check failed: {}", stderr));
+        return Ok(ClaudeAuthStatus {
+            logged_in: false,
+            auth_method: String::new(),
+            email: String::new(),
+            org_name: String::new(),
+            subscription_type: String::new(),
+        });
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    serde_json::from_str(&stdout)
-        .map_err(|e| format!("Parse error: {}. Output: {}", e, stdout))
+    let creds_json = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let creds: serde_json::Value = serde_json::from_str(&creds_json)
+        .map_err(|e| format!("Parse error: {}", e))?;
+
+    let oauth = creds.get("claudeAiOauth");
+    if oauth.is_none() {
+        return Ok(ClaudeAuthStatus {
+            logged_in: false,
+            auth_method: String::new(),
+            email: String::new(),
+            org_name: String::new(),
+            subscription_type: String::new(),
+        });
+    }
+
+    let has_token = oauth
+        .and_then(|o| o.get("accessToken"))
+        .and_then(|t| t.as_str())
+        .map(|t| !t.is_empty())
+        .unwrap_or(false);
+
+    let sub_type = oauth
+        .and_then(|o| o.get("subscriptionType"))
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    // Note: Keychain doesn't store email — email restriction enforced on frontend
+    // via `claude auth status` CLI output which includes the email field
+    Ok(ClaudeAuthStatus {
+        logged_in: has_token,
+        auth_method: if has_token { "keychain".to_string() } else { String::new() },
+        email: String::new(),
+        org_name: String::new(),
+        subscription_type: sub_type,
+    })
 }
 
 /// Read the Claude OAuth access token from macOS Keychain.

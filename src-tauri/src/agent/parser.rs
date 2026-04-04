@@ -4,27 +4,24 @@ use std::path::{Path, PathBuf};
 
 use super::types::AgentConfig;
 
-/// Find the .claude/agents/ directory
+/// Find the agents directory — uses bundled::resolve_dir which checks
+/// ~/.cthulu-lab/agents first (extracted from binary), then .claude/agents from CWD
 pub fn discover_agents_dir(cwd: &Path) -> Option<PathBuf> {
-    // Try relative to cwd first, then parent dirs, then home
-    let mut dir = cwd.to_path_buf();
+    // Try CWD first (dev mode)
+    let mut dir: &Path = cwd;
     loop {
         let agents_dir = dir.join(".claude").join("agents");
         if agents_dir.is_dir() {
             return Some(agents_dir);
         }
-        if !dir.pop() {
-            break;
+        match dir.parent() {
+            Some(p) => dir = p,
+            None => break,
         }
     }
-    // Try home directory
-    if let Some(home) = dirs::home_dir() {
-        let agents_dir = home.join(".claude").join("agents");
-        if agents_dir.is_dir() {
-            return Some(agents_dir);
-        }
-    }
-    None
+
+    // Fall back to ~/.cthulu-lab/agents (extracted from bundled assets)
+    crate::bundled::resolve_dir("agents")
 }
 
 /// Load all agent markdown files from directory

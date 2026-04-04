@@ -1,5 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getApiUrl } from "./config";
-const API_URL = getApiUrl();
 
 export interface UserVm {
   email: string;
@@ -14,40 +14,30 @@ export interface UserVm {
 
 export async function getUserVm(email: string): Promise<UserVm | null> {
   try {
-    const res = await fetch(`${API_URL}/user-vm/${encodeURIComponent(email)}`);
-    const data = await res.json();
-    return data.success ? data.data : null;
+    return await invoke<UserVm | null>("get_user_vm", { apiUrl: getApiUrl(), email });
   } catch { return null; }
 }
 
 export async function saveUserVm(vm: Omit<UserVm, "createdAt">): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_URL}/user-vm`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(vm),
-    });
-    const data = await res.json();
-    return data.success;
-  } catch { return false; }
+  return invoke<boolean>("save_user_vm", {
+    apiUrl: getApiUrl(),
+    email: vm.email,
+    vmId: vm.vmId,
+    tier: vm.tier,
+    sshPort: vm.sshPort,
+    webPort: vm.webPort,
+    webTerminal: vm.webTerminal,
+  });
 }
 
 export async function deleteUserVm(email: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_URL}/user-vm/${encodeURIComponent(email)}`, { method: "DELETE" });
-    const data = await res.json();
-    return data.success;
+    return await invoke<boolean>("delete_user_vm", { apiUrl: getApiUrl(), email });
   } catch { return false; }
 }
 
 export async function updateSlackWebhook(email: string, slackWebhook: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_URL}/user-vm/${encodeURIComponent(email)}/slack-webhook`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slackWebhook }),
-    });
-    const data = await res.json();
-    return data.success;
+    return await invoke<boolean>("update_slack_webhook", { apiUrl: getApiUrl(), email, slackWebhook });
   } catch { return false; }
 }

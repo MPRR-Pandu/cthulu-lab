@@ -6,4 +6,5 @@ pub mod inbox_cmds;
 pub mod issue_cmds;
 pub mod sandbox;
 pub mod skill_cmds;
+pub mod user_vm_cmds;
 pub mod workspace_cmds;

@@ -6,9 +6,17 @@ export function useScheduler() {
   const scheduledTasks = useAppStore((s) => s.scheduledTasks);
   const updateLastRun = useAppStore((s) => s.updateLastRun);
   const addActivity = useAppStore((s) => s.addActivity);
+  const hasWorkspace = useAppStore((s) => s.hasWorkspace);
   const intervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
   useEffect(() => {
+    // Don't run scheduled tasks without a workspace — prevents accidental claude spawns
+    if (!hasWorkspace) {
+      intervalsRef.current.forEach((interval) => clearInterval(interval));
+      intervalsRef.current.clear();
+      return;
+    }
+
     const currentIds = new Set(
       scheduledTasks.filter((t) => t.active).map((t) => t.id)
     );
@@ -72,5 +80,5 @@ export function useScheduler() {
       intervalsRef.current.forEach((interval) => clearInterval(interval));
       intervalsRef.current.clear();
     };
-  }, [scheduledTasks, updateLastRun, addActivity]);
+  }, [scheduledTasks, updateLastRun, addActivity, hasWorkspace]);
 }

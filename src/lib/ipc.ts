@@ -67,6 +67,12 @@ export const ipc = {
     }),
 
   deleteSkill: (name: string) => invoke<void>("delete_skill", { name }),
+
+  testApiConnection: (url: string) => invoke<string>("test_api_connection", { url }),
+  testGatewayConnection: (url: string) => invoke<string>("test_gateway_connection", { url }),
+
+  delegateToAgent: (fromAgent: string, toAgent: string, task: string, context: string) =>
+    invoke<string>("delegate_to_agent", { fromAgent, toAgent, task, context }),
 };
 
 export function onChatStream(

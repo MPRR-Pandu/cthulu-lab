@@ -11,15 +11,7 @@ pub struct SkillInfo {
 }
 
 fn discover_skills_dir() -> Option<PathBuf> {
-    let cwd = std::env::current_dir().ok()?;
-    let mut dir = cwd.as_path();
-    loop {
-        let candidate = dir.join(".claude").join("skills");
-        if candidate.is_dir() {
-            return Some(candidate);
-        }
-        dir = dir.parent()?;
-    }
+    crate::bundled::resolve_dir("skills")
 }
 
 #[tauri::command]

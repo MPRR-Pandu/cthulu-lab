@@ -1,0 +1,124 @@
+## Cthulu Lab — Next.js Backend
+## Domain: cthulu-lab.capybara.systems
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cthulu-lab-config
+  namespace: cthulu-bot
+data:
+  NODE_ENV: "production"
+  NEXTAUTH_URL: "https://cthulu-lab.capybara.systems"
+  AUTH_URL: "https://cthulu-lab.capybara.systems"
+  AUTH_TRUST_HOST: "true"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: cthulu-lab
+  name: cthulu-lab
+  namespace: cthulu-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cthulu-lab
+  template:
+    metadata:
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/agent-inject-template-env-vars: |
+          {{- with secret "cthulu-svc/data/secrets" -}}
+          export MONGODB_URI="{{ .Data.data.MONGODB_URI }}"
+          export GOOGLE_CLIENT_ID="{{ .Data.data.GOOGLE_CLIENT_ID }}"
+          export GOOGLE_CLIENT_SECRET="{{ .Data.data.GOOGLE_CLIENT_SECRET }}"
+          export AUTH_SECRET="{{ .Data.data.JWT_SECRET }}"
+          export NEXTAUTH_SECRET="{{ .Data.data.JWT_SECRET }}"
+          export AUTH_TRUST_HOST="true"
+          {{- end }}
+        vault.hashicorp.com/auth-path: auth/utilities
+        vault.hashicorp.com/role: cthulu-svc
+      labels:
+        app: cthulu-lab
+    spec:
+      serviceAccountName: cthulu-sa
+      containers:
+        - name: cthulu-lab
+          image: 558659058402.dkr.ecr.ap-northeast-1.amazonaws.com/dev-obsidian-sync-server:cthulu-lab-v1.4
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -a
+              source /vault/secrets/env-vars
+              set +a
+              exec node server.js
+          envFrom:
+            - configMapRef:
+                name: cthulu-lab-config
+          ports:
+            - containerPort: 3000
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cthulu-lab
+  namespace: cthulu-bot
+spec:
+  selector:
+    app: cthulu-lab
+  ports:
+    - port: 80
+      targetPort: 3000
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/backend-protocol-version: HTTP1
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-northeast-1:558659058402:certificate/b8d6c3ec-fc7a-4c81-aa7e-dc430ed2ab4c
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-path: /api/health
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+  name: cthulu-lab-ingress
+  namespace: cthulu-bot
+spec:
+  ingressClassName: alb-ingress-controller
+  rules:
+  - host: cthulu-lab.capybara.systems
+    http:
+      paths:
+      - backend:
+          service:
+            name: cthulu-lab
+            port:
+              number: 80
+        path: /*
+        pathType: ImplementationSpecific

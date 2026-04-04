@@ -1,0 +1,65 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Cthulu Lab API",
+    "version": "0.1.0",
+    "description": "API for Cthulu Lab — AI-Powered Workflow Automation"
+  },
+  "paths": {
+    "/api/health": {
+      "get": { "summary": "Health check", "tags": ["System"], "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/workspaces/{email}": {
+      "get": { "summary": "List user workspaces", "tags": ["Workspaces"], "parameters": [{ "name": "email", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Workspace list" } } }
+    },
+    "/api/workspaces": {
+      "post": { "summary": "Add workspace", "tags": ["Workspaces"], "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "email": { "type": "string" }, "path": { "type": "string" } } } } } }, "responses": { "201": { "description": "Created" } } },
+      "delete": { "summary": "Remove workspace", "tags": ["Workspaces"], "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "email": { "type": "string" }, "path": { "type": "string" } } } } } }, "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/workspaces/active": {
+      "put": { "summary": "Switch active workspace", "tags": ["Workspaces"], "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "email": { "type": "string" }, "path": { "type": "string" } } } } } }, "responses": { "200": { "description": "Switched" } } }
+    },
+    "/api/workflows/list/{email}": {
+      "get": { "summary": "List user workflows", "tags": ["Workflows"], "parameters": [{ "name": "email", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Workflow list" } } }
+    },
+    "/api/workflows": {
+      "post": { "summary": "Create workflow", "tags": ["Workflows"], "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "email": { "type": "string" }, "name": { "type": "string" }, "steps": { "type": "array", "items": { "type": "object", "properties": { "type": { "type": "string", "enum": ["fetch", "claude"] }, "name": { "type": "string" }, "command": { "type": "string" }, "prompt": { "type": "string" } } } }, "schedule": { "type": "string" }, "sink": { "type": "string" }, "sinkConfig": { "type": "object" } } } } } }, "responses": { "201": { "description": "Created" } } }
+    },
+    "/api/workflows/{id}": {
+      "put": { "summary": "Update workflow", "tags": ["Workflows"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Updated" } } },
+      "delete": { "summary": "Delete workflow", "tags": ["Workflows"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/workflows/{id}/script": {
+      "get": { "summary": "Get generated bash script", "tags": ["Workflows"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Script" } } }
+    },
+    "/api/workflows/{id}/run": {
+      "post": { "summary": "Run workflow", "tags": ["Workflows"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Run started" } } }
+    },
+    "/api/workflows/{id}/runs": {
+      "get": { "summary": "Get run history", "tags": ["Workflows"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Run list" } } }
+    },
+    "/api/workflows/{id}/runs/{runId}": {
+      "put": { "summary": "Save run result", "tags": ["Workflows"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "runId", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Saved" } } }
+    },
+    "/api/workflows/{id}/toggle": {
+      "post": { "summary": "Toggle cron on/off", "tags": ["Workflows"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Toggled" } } }
+    },
+    "/api/user-vm/{email}": {
+      "get": { "summary": "Get user VM mapping", "tags": ["VMs"], "parameters": [{ "name": "email", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "VM info" } } },
+      "delete": { "summary": "Delete user VM mapping", "tags": ["VMs"], "parameters": [{ "name": "email", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/user-vm": {
+      "post": { "summary": "Create user VM mapping", "tags": ["VMs"], "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "email": { "type": "string" }, "vmId": { "type": "number" }, "tier": { "type": "string" }, "sshPort": { "type": "number" }, "webPort": { "type": "number" } } } } } }, "responses": { "201": { "description": "Created" } } }
+    },
+    "/api/user-vm/{email}/slack-webhook": {
+      "put": { "summary": "Update Slack webhook", "tags": ["VMs"], "parameters": [{ "name": "email", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Updated" } } }
+    },
+    "/api/scheduled": {
+      "get": { "summary": "Get all scheduled responses", "tags": ["Scheduled"], "responses": { "200": { "description": "List" } } },
+      "post": { "summary": "Save scheduled response", "tags": ["Scheduled"], "responses": { "201": { "description": "Saved" } } }
+    },
+    "/api/scheduled/{taskId}": {
+      "get": { "summary": "Get scheduled responses by task", "tags": ["Scheduled"], "parameters": [{ "name": "taskId", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "List" } } }
+    }
+  }
+}

@@ -31,7 +31,11 @@ pub async fn stream_response(
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                eprintln!("[claude stderr] {}", line);
+                // Filter out noisy stdin wait warnings — harmless, caused by piped stdin
+                if line.contains("no stdin data received") {
+                    continue;
+                }
+                tracing::warn!(agent = %aid_debug, "{}", line);
                 let _ = ah_debug.emit("agent-debug", serde_json::json!({
                     "agent_id": aid_debug,
                     "message": line,

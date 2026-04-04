@@ -9,8 +9,8 @@ interface Config {
 }
 
 const DEFAULTS: Config = {
-  apiUrl: "http://localhost:3000/api",
-  gatewayUrl: "",
+  apiUrl: "https://cthulu-lab.capybara.systems/api",
+  gatewayUrl: "http://34.100.130.60:8080",
 };
 
 let _config: Config | null = null;

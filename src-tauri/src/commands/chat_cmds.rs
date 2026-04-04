@@ -80,6 +80,14 @@ pub async fn send_message(
         }
     }
 
+    tracing::info!(
+        agent = %agent_id,
+        workspace = %working_dir,
+        speed = %speed,
+        resume = existing_session.is_some(),
+        "sending message"
+    );
+
     // Spawn claude CLI — resume session if we have one
     let mut child = claude::cli::spawn_claude(
         &agent_id,
@@ -169,7 +177,7 @@ pub async fn send_message(
                 }
             }
             Err(e) => {
-                eprintln!("Stream error: {}", e);
+                tracing::error!(agent = %aid, "stream error: {}", e);
                 cm.append_to_streaming(&aid, &msg_id, &format!("\n\n[Error: {}]", e))
                     .await;
                 cm.finalize_message(&aid, &msg_id).await;
@@ -256,6 +264,76 @@ pub async fn set_budget_cap(state: tauri::State<'_, AppState>, cap: f64) -> Resu
     let mut budget = state.budget_cap.write().await;
     *budget = cap;
     Ok(cap)
+}
+
+#[tauri::command]
+pub async fn delegate_to_agent(
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    from_agent: String,
+    to_agent: String,
+    task: String,
+    context: String,
+) -> Result<String, String> {
+    // Check delegation depth — max 2
+    {
+        let depths = state.delegation_depth.read().await;
+        let current_depth = depths.get(&from_agent).copied().unwrap_or(0);
+        if current_depth >= 2 {
+            return Err(format!(
+                "Delegation depth exceeded (max 2). {} cannot delegate further.",
+                from_agent
+            ));
+        }
+    }
+
+    // Increment depth for the target agent
+    {
+        let mut depths = state.delegation_depth.write().await;
+        let from_depth = depths.get(&from_agent).copied().unwrap_or(0);
+        depths.insert(to_agent.clone(), from_depth + 1);
+    }
+
+    let delegated_content = format!(
+        "[Delegated from {}] Context: {}\n\nTask: {}",
+        from_agent, context, task
+    );
+
+    // Post delegation message to inbox
+    let inbox_msg = InboxMessage {
+        id: Uuid::new_v4().to_string(),
+        from: from_agent.clone(),
+        to: to_agent.clone(),
+        message_type: InboxMessageType::Delegation,
+        content: format!("Delegated task: {}", task),
+        timestamp: Utc::now(),
+        read: false,
+        ref_message_id: None,
+    };
+    state.inbox.add(inbox_msg).await;
+
+    let _ = app_handle.emit("inbox-update", serde_json::json!({
+        "from": from_agent,
+        "to": to_agent,
+        "type": "delegation",
+    }));
+
+    // Reuse send_message logic
+    let result = send_message(
+        state.clone(),
+        app_handle,
+        to_agent.clone(),
+        delegated_content,
+    )
+    .await;
+
+    // Clean up delegation depth on completion
+    {
+        let mut depths = state.delegation_depth.write().await;
+        depths.remove(&to_agent);
+    }
+
+    result
 }
 
 #[tauri::command]

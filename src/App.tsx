@@ -15,33 +15,17 @@ import { useAgents } from "./hooks/useAgents";
 import { useStreamListener } from "./hooks/useStreamListener";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useScheduler } from "./hooks/useScheduler";
+import { useMemorySync } from "./hooks/useMemorySync";
 import { useAuthStore } from "./store/useAuthStore";
 import { useAppStore } from "./store/useAppStore";
 
-function NoWorkspace() {
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center font-mono text-xs">
-      <pre className="text-[#333333] text-sm leading-tight mb-4">{
-`  ┌─────────────────────┐
-  │                     │
-  │    NO WORKSPACE     │
-  │                     │
-  └─────────────────────┘`
-      }</pre>
-      <div className="text-[#808080] mb-1">add a workspace to start</div>
-      <div className="text-[#555555]">← click <span className="text-[#4de8e0]">+ add workspace</span> in the sidebar</div>
-      <div className="text-[#333333] mt-4 max-w-[300px] text-center">
-        a workspace is a project directory where agents will read, edit, and build code
-      </div>
-    </div>
-  );
-}
 
 function App() {
   useAgents();
   useStreamListener();
   useKeyboardShortcuts();
   useScheduler();
+  useMemorySync();
   const [view, setView] = useState<"chat" | "swarm" | "split" | "gateway">("split");
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
@@ -91,6 +75,12 @@ function App() {
               [GATEWAY TO HEAVEN]
             </button>
             <span className="text-[#333333] mx-1">|</span>
+            <button
+              onClick={() => useAppStore.getState().setSettingsOpen(true)}
+              className="px-2 py-0.5 text-[#808080] hover:text-[#e0e0e0]"
+            >
+              [SETTINGS]
+            </button>
             {user && (
               <span className="text-[#808080] text-xs">{user.username}</span>
             )}
@@ -108,7 +98,20 @@ function App() {
             <GatewayPanel />
           </div>
         ) : !hasWorkspace ? (
-          <NoWorkspace />
+          <div className="flex-1 flex flex-col items-center justify-center font-mono text-xs">
+            <pre className="text-[#333333] text-sm leading-tight mb-4">{
+`  ┌─────────────────────┐
+  │                     │
+  │    NO WORKSPACE     │
+  │                     │
+  └─────────────────────┘`
+            }</pre>
+            <div className="text-[#808080] mb-1">add a workspace to start</div>
+            <div className="text-[#555555]">← click <span className="text-[#4de8e0]">+ add workspace</span> in the sidebar</div>
+            <div className="text-[#333333] mt-4 max-w-[300px] text-center">
+              a workspace is a project directory where agents will read, edit, and build code
+            </div>
+          </div>
         ) : (
           <>
             {view === "chat" && (

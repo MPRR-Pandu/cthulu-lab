@@ -1,11 +1,15 @@
-import { signIn } from "@/lib/auth";
+import { signIn, auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import Link from "next/link";
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  const session = await auth();
+  if (session?.user) redirect("/download");
+
   return (
     <div className="flex flex-col flex-1 items-center justify-center px-8">
       <div className="w-full max-w-sm flex flex-col items-center gap-8">
-        <Link href="/" className="text-cyan font-bold tracking-widest text-xl">
+        <Link href="/docs" className="text-cyan font-bold tracking-widest text-xl">
           CTHULU LAB
         </Link>
 
@@ -15,14 +19,14 @@ export default function LoginPage() {
               AUTHENTICATE
             </h1>
             <p className="text-dim text-xs">
-              Sign in to access your dashboard
+              sign in to download Cthulu Lab for Mac
             </p>
           </div>
 
           <form
             action={async () => {
               "use server";
-              await signIn("google", { redirectTo: "/dashboard" });
+              await signIn("google", { redirectTo: "/download" });
             }}
           >
             <button
@@ -39,18 +43,17 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="text-center text-dim text-xs">
+          <div className="text-center text-dim text-[10px]">
             <span className="text-green">$</span> secure oauth2 flow
-            <span
-              className="inline-block w-1.5 h-3 bg-dim ml-1"
-              style={{ animation: "blink 1s step-end infinite" }}
-            />
           </div>
         </div>
 
-        <Link href="/" className="text-dim text-xs hover:text-cyan transition-colors">
-          &lt;-- back to home
-        </Link>
+        <div className="flex items-center gap-2 text-dim text-[10px]">
+          <span>powered by</span>
+          <a href="https://bitcoin.com" target="_blank" rel="noopener noreferrer" className="text-[#f7931a] hover:text-[#f7931a]/80 font-bold tracking-wider">
+            BITCOIN.COM
+          </a>
+        </div>
       </div>
     </div>
   );

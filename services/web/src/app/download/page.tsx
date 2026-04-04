@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 const steps = [
   {
@@ -18,56 +20,61 @@ const steps = [
     note: "Download the .dmg below and install",
   },
   {
+    num: "03b",
+    title: "Allow on macOS",
+    cmd: "xattr -cr ~/Downloads/CthluLab-0.1.0-mac.dmg",
+    note: "Run this before opening the .dmg — macOS blocks unsigned downloads",
+  },
+  {
     num: "04",
-    title: "Set Backend URL",
+    title: "Open Settings",
     cmd: null,
-    note: "Open Settings and set Backend URL to your API endpoint",
+    note: "Set Backend URL to your API endpoint",
   },
   {
     num: "05",
     title: "Set Gateway URL",
     cmd: null,
-    note: "Set Gateway URL to your VM gateway endpoint",
+    note: "Point to your VM Manager for Gateway to Heaven",
   },
   {
     num: "06",
     title: "Add Workspace",
     cmd: null,
-    note: "Add a workspace path to start managing your projects",
-  },
-  {
-    num: "07",
-    title: "Start Chatting",
-    cmd: null,
-    note: "Open the agent chat and start talking to Claude in your VM",
+    note: "Add a project directory and start building",
   },
 ];
 
-export default function DownloadPage() {
+export default async function DownloadPage() {
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+
   return (
     <div className="flex flex-col flex-1">
       <nav className="w-full flex items-center justify-between px-8 py-4 border-b border-[#1a1a1a]">
-        <Link
-          href="/"
-          className="text-cyan font-bold tracking-wider text-sm"
-        >
+        <Link href="/" className="text-cyan font-bold tracking-wider text-sm">
           CTHULU LAB
         </Link>
-        <Link
-          href="/login"
-          className="px-3 py-1 text-xs border border-[#333] text-[#e0e0e0] hover:border-cyan hover:text-cyan transition-colors"
-        >
-          LOGIN
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link href="/docs" className="px-3 py-1 text-xs text-[#808080] border border-[#333] hover:border-cyan hover:text-cyan transition-colors">
+            API DOCS
+          </Link>
+          <span className="text-dim text-xs">{session.user.email}</span>
+        </div>
       </nav>
 
       <main className="flex-1 w-full max-w-3xl mx-auto px-8 py-12 flex flex-col gap-10">
         <div>
-          <h1 className="text-2xl font-bold tracking-wider mb-2">
-            <span className="text-green">$</span> DOWNLOAD
-          </h1>
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="text-2xl font-bold tracking-wider">
+              <span className="text-green">$</span> DOWNLOAD
+            </h1>
+            <span className="text-[9px] px-2 py-0.5 border border-cyan/30 text-cyan">
+              EARLY ACCESS
+            </span>
+          </div>
           <p className="text-dim text-sm">
-            Get Cthulu Lab for macOS and set up in minutes
+            welcome, <span className="text-cyan">{session.user.name || session.user.email}</span> — grab the Mac app and set up in minutes
           </p>
         </div>
 
@@ -77,11 +84,15 @@ export default function DownloadPage() {
               CTHULU LAB FOR MAC
             </div>
             <div className="text-dim text-xs">
-              macOS 12+ -- Apple Silicon & Intel
+              macOS 12+ — Apple Silicon & Intel
+            </div>
+            <div className="text-[#333] text-[10px] mt-1">
+              available for macOS — early access
             </div>
           </div>
           <a
-            href="#"
+            href="/CthluLab-0.1.0-mac.dmg"
+            download
             className="px-6 py-2 bg-cyan text-black font-bold text-sm tracking-wider hover:bg-cyan/80 transition-colors"
           >
             DOWNLOAD .DMG
@@ -93,30 +104,23 @@ export default function DownloadPage() {
             SETUP STEPS
           </h2>
           {steps.map((s) => (
-            <div
-              key={s.num}
-              className="border border-[#1a1a1a] bg-[#0a0a0a] p-4 flex flex-col gap-2"
-            >
+            <div key={s.num} className="border border-[#1a1a1a] bg-[#0a0a0a] p-4 flex flex-col gap-2">
               <div className="flex items-center gap-3">
                 <span className="text-cyan text-xs font-bold">{s.num}</span>
                 <span className="text-sm font-bold">{s.title}</span>
               </div>
-              {s.cmd ? (
+              {s.cmd && (
                 <pre className="text-green text-xs bg-black px-3 py-2 border border-[#1a1a1a] overflow-x-auto">
-                  <span className="text-dim">$ </span>
-                  {s.cmd}
+                  <span className="text-dim">$ </span>{s.cmd}
                 </pre>
-              ) : null}
-              {s.note ? (
-                <p className="text-dim text-xs pl-7">{s.note}</p>
-              ) : null}
+              )}
+              {s.note && <p className="text-dim text-xs pl-7">{s.note}</p>}
             </div>
           ))}
         </div>
 
-        <div className="text-dim text-xs">
-          <span className="text-green">need help?</span> check the docs or
-          open an issue on github
+        <div className="border border-[#1a1a1a] bg-[#0a0a0a] p-4 text-[10px] text-dim">
+          <span className="text-cyan">what you get:</span> 5 AI agents, workflow canvas, VM gateway, Slack integration, cron scheduling, self-improving skills, keyboard shortcuts, terminal UI with glow effects.
         </div>
       </main>
     </div>

@@ -1,64 +1,24 @@
 import { useState, useEffect } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { useAuthStore } from "../store/useAuthStore";
-import { workspaceIpc } from "../lib/workspaceIpc";
+import { workspaceIpc, type WorkspaceInfo } from "../lib/workspaceIpc";
 import { getApiUrl } from "../lib/config";
 
 const API_URL = getApiUrl();
 
-interface MongoWorkspace {
-  id: string;
-  path: string;
-  name: string;
-  active: boolean;
-}
-
-async function fetchWorkspaces(email: string): Promise<MongoWorkspace[]> {
-  try {
-    const res = await fetch(`${API_URL}/workspaces/${encodeURIComponent(email)}`);
-    const data = await res.json();
-    return data.success ? data.data : [];
-  } catch { return []; }
-}
-
-async function addWorkspaceToDb(email: string, path: string): Promise<MongoWorkspace[]> {
-  try {
-    const res = await fetch(`${API_URL}/workspaces`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, path }),
-    });
-    const data = await res.json();
-    return data.success ? data.data : [];
-  } catch { return []; }
-}
-
-async function switchWorkspaceInDb(email: string, path: string): Promise<MongoWorkspace[]> {
-  try {
-    const res = await fetch(`${API_URL}/workspaces/active`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, path }),
-    });
-    const data = await res.json();
-    return data.success ? data.data : [];
-  } catch { return []; }
-}
-
-async function removeWorkspaceFromDb(email: string, path: string): Promise<MongoWorkspace[]> {
-  try {
-    const res = await fetch(`${API_URL}/workspaces`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, path }),
-    });
-    const data = await res.json();
-    return data.success ? data.data : [];
-  } catch { return []; }
+/** Best-effort sync to cloud backend — never blocks UI */
+function syncToBackend(method: string, email: string, path?: string) {
+  if (!email) return;
+  const url = method === "PUT" ? `${API_URL}/workspaces/active` : `${API_URL}/workspaces`;
+  fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, path }),
+  }).catch(() => {});
 }
 
 export function WorkspacePicker() {
-  const [workspaces, setWorkspaces] = useState<MongoWorkspace[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [adding, setAdding] = useState(false);
   const [newPath, setNewPath] = useState("");
   const [error, setError] = useState("");
@@ -67,33 +27,17 @@ export function WorkspacePicker() {
   const email = user?.email ?? "";
 
   const loadWorkspaces = async () => {
-    if (!email) return;
-    const list = await fetchWorkspaces(email);
+    try {
+      const list = await workspaceIpc.list();
+      setWorkspaces(list);
+      setHasWorkspace(list.length > 0);
 
-    // Verify each workspace exists locally, mark missing ones
-    const verified: MongoWorkspace[] = [];
-    for (const ws of list) {
-      try {
-        await workspaceIpc.add(ws.path);
-        verified.push(ws);
-      } catch {
-        // Directory doesn't exist locally — skip it but keep in DB
-        verified.push({ ...ws, name: `${ws.name} (not found)` });
-      }
-    }
-
-    setWorkspaces(verified);
-    const validCount = list.length;
-    setHasWorkspace(validCount > 0);
-
-    const active = verified.find((w) => w.active);
-    if (active) {
-      try {
-        await workspaceIpc.switch(active.path);
+      const active = list.find((w) => w.active);
+      if (active) {
         useAppStore.setState({ repoName: active.name });
-      } catch {
-        // Active workspace doesn't exist locally
       }
+    } catch {
+      // Tauri not available (web preview)
     }
   };
 
@@ -102,19 +46,13 @@ export function WorkspacePicker() {
   }, [email]);
 
   const handleSwitch = async (path: string) => {
-    // Verify locally first
     try {
       await workspaceIpc.switch(path);
     } catch {
-      return; // Dir doesn't exist locally
+      return;
     }
-
-    const list = await switchWorkspaceInDb(email, path);
-    setWorkspaces(list);
-    const active = list.find((w) => w.active);
-    if (active) {
-      useAppStore.setState({ repoName: active.name });
-    }
+    syncToBackend("PUT", email, path);
+    await loadWorkspaces();
   };
 
   const handleAdd = async () => {
@@ -122,7 +60,6 @@ export function WorkspacePicker() {
     if (!cleaned) return;
     setError("");
 
-    // Validate path format
     if (!cleaned.startsWith("/")) {
       setError("path must be absolute (start with /)");
       return;
@@ -136,34 +73,39 @@ export function WorkspacePicker() {
       return;
     }
 
-    // Verify/create directory via Rust (creates child if parent exists)
     try {
-      await workspaceIpc.add(cleaned);
+      const list = await workspaceIpc.add(cleaned);
+      setWorkspaces(list);
+      setHasWorkspace(true);
+      setNewPath("");
+      setAdding(false);
+
+      const active = list.find((w) => w.active);
+      if (active) {
+        useAppStore.setState({ repoName: active.name });
+      }
     } catch (err) {
       setError(String(err).replace(/^Error: /, ""));
       return;
     }
 
-    // Save to MongoDB
-    const list = await addWorkspaceToDb(email, cleaned);
-    setWorkspaces(list);
-    setHasWorkspace(true);
-    setNewPath("");
-    setAdding(false);
-
-    // Switch to it
-    await workspaceIpc.switch(cleaned);
-    useAppStore.setState({
-      repoName: cleaned.split("/").filter(Boolean).pop() || cleaned,
-    });
-    await loadWorkspaces();
+    syncToBackend("POST", email, cleaned);
   };
 
   const handleRemove = async (path: string) => {
-    const list = await removeWorkspaceFromDb(email, path);
-    setWorkspaces(list);
-    setHasWorkspace(list.length > 0);
-    workspaceIpc.remove(path).catch(() => {});
+    try {
+      const list = await workspaceIpc.remove(path);
+      setWorkspaces(list);
+      setHasWorkspace(list.length > 0);
+
+      const active = list.find((w) => w.active);
+      if (active) {
+        useAppStore.setState({ repoName: active.name });
+      }
+    } catch {
+      // ignore
+    }
+    syncToBackend("DELETE", email, path);
   };
 
   return (

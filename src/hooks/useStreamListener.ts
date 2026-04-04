@@ -6,6 +6,9 @@ import type { InboxMessage } from "../types/inbox";
 import type { PermissionRequest } from "../types/chat";
 import { playReceive, playAlert, playProgress } from "../lib/sounds";
 import { saveScheduledResponse } from "../lib/scheduledApi";
+import { saveMemory } from "../lib/memoryApi";
+import { useAuthStore } from "../store/useAuthStore";
+import { ipc } from "../lib/ipc";
 
 interface AgentStuckPayload {
   agent_id: string;
@@ -140,6 +143,14 @@ export function useStreamListener() {
                 lastUser.content,
                 lastAgent.content.slice(0, 100)
               );
+
+              // Persist to backend if authenticated
+              if (!isBackground) {
+                const email = useAuthStore.getState().user?.email;
+                if (email) {
+                  saveMemory(email, chunk.agent_id, lastUser.content, lastAgent.content.slice(0, 100));
+                }
+              }
 
               // Check if this success resolves a previous lesson
               const lessons = useAppStore.getState().lessons;
@@ -297,23 +308,46 @@ export function useStreamListener() {
       const { agent_id, message_id, tool_calls } = event.payload;
       setMessageToolCalls(message_id, tool_calls);
 
-      if (tool_calls >= 5) {
-        const msgs = useAppStore.getState().sessions[agent_id] ?? [];
-        const userMsgs = msgs.filter((m) => m.role === "User");
-        const lastUserMsg = userMsgs[userMsgs.length - 1];
-        if (lastUserMsg) {
-          useAppStore.getState().setSkillSuggestion({
-            agentId: agent_id,
-            messageId: message_id,
-            task: lastUserMsg.content.slice(0, 100),
-            toolCalls: tool_calls,
+      const msgs = useAppStore.getState().sessions[agent_id] ?? [];
+      const userMsgs = msgs.filter((m) => m.role === "User");
+      const lastUserMsg = userMsgs[userMsgs.length - 1];
+
+      if (tool_calls >= 8 && lastUserMsg) {
+        const agentMsgs = msgs.filter((m) => m.role === "Agent");
+        const lastAgentMsg = agentMsgs[agentMsgs.length - 1];
+        const agentResponse = lastAgentMsg?.content?.slice(0, 200) ?? "";
+        const skillName = lastUserMsg.content
+          .slice(0, 40)
+          .replace(/[^a-zA-Z0-9 ]/g, "")
+          .trim();
+
+        ipc
+          .createSkill(
+            skillName,
+            lastUserMsg.content.slice(0, 100),
+            "When you need to: " + lastUserMsg.content.slice(0, 100),
+            "1. " + agentResponse,
+            "Check for common issues with this type of task",
+            "Verify by running tests or checking output",
+          )
+          .then(() => {
+            addActivity({ agent: agent_id, event: `auto-skill: ${skillName}` });
+          })
+          .catch((err) => {
+            console.error("Failed to auto-create skill:", err);
           });
-        }
+      } else if (tool_calls >= 5 && lastUserMsg) {
+        useAppStore.getState().setSkillSuggestion({
+          agentId: agent_id,
+          messageId: message_id,
+          task: lastUserMsg.content.slice(0, 100),
+          toolCalls: tool_calls,
+        });
       }
     });
 
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [setMessageToolCalls]);
+  }, [setMessageToolCalls, addActivity]);
 }

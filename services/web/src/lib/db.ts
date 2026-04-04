@@ -1,27 +1,33 @@
 import { MongoClient, type Db, type Collection } from "mongodb";
 
-const MONGODB_URI =
-  process.env.MONGODB_URI ||
-  process.env.DATABASE_URL ||
-  "mongodb://root:checkOne@localhost:27017/cthulu_lab?authSource=admin";
-
 let client: MongoClient;
 let db: Db;
 
-if (process.env.NODE_ENV === "development") {
-  const g = globalThis as unknown as { _mongoClient?: MongoClient };
-  if (!g._mongoClient) {
-    g._mongoClient = new MongoClient(MONGODB_URI);
+function getUri(): string {
+  const uri = process.env.MONGODB_URI || process.env.DATABASE_URL;
+  if (!uri) throw new Error("MONGODB_URI or DATABASE_URL env var is required");
+  return uri;
+}
+
+function getClient(): MongoClient {
+  if (!client) {
+    const uri = getUri();
+    if (process.env.NODE_ENV === "development") {
+      const g = globalThis as unknown as { _mongoClient?: MongoClient };
+      if (!g._mongoClient) g._mongoClient = new MongoClient(uri);
+      client = g._mongoClient;
+    } else {
+      client = new MongoClient(uri);
+    }
   }
-  client = g._mongoClient;
-} else {
-  client = new MongoClient(MONGODB_URI);
+  return client;
 }
 
 export async function getDb(): Promise<Db> {
   if (!db) {
-    await client.connect();
-    db = client.db();
+    const c = getClient();
+    await c.connect();
+    db = c.db();
   }
   return db;
 }
@@ -124,4 +130,37 @@ export interface WorkflowDoc {
 export async function workflows(): Promise<Collection<WorkflowDoc>> {
   const d = await getDb();
   return d.collection<WorkflowDoc>("workflows");
+}
+
+export interface AgentMemoryDoc {
+  _id?: string;
+  email: string;
+  agentId: string;
+  task: string;
+  result: string;
+  timestamp: Date;
+}
+
+export async function agentMemory(): Promise<Collection<AgentMemoryDoc>> {
+  const d = await getDb();
+  return d.collection<AgentMemoryDoc>("agent_memory");
+}
+
+export interface AgentSessionMessage {
+  role: string;
+  content: string;
+  timestamp: Date;
+}
+
+export interface AgentSessionDoc {
+  _id?: string;
+  email: string;
+  agentId: string;
+  messages: AgentSessionMessage[];
+  updatedAt: Date;
+}
+
+export async function agentSessions(): Promise<Collection<AgentSessionDoc>> {
+  const d = await getDb();
+  return d.collection<AgentSessionDoc>("agent_sessions");
 }

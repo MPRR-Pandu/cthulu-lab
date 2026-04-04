@@ -2,11 +2,16 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
 
-/// Find the shared system-prompt.md file next to the agents directory.
+/// Find the shared system-prompt.md — checks ~/.cthulu-lab/ first, then CWD
 fn discover_system_prompt() -> Option<String> {
-    let cwd = std::env::current_dir().ok()?;
+    // Check ~/.cthulu-lab/system-prompt.md (bundled)
+    let bundled = crate::bundled::home_dir().join("system-prompt.md");
+    if bundled.is_file() {
+        return Some(bundled.to_string_lossy().to_string());
+    }
 
-    // Walk up from cwd looking for .claude/system-prompt.md
+    // Walk up from CWD (dev mode)
+    let cwd = std::env::current_dir().ok()?;
     let mut dir = cwd.as_path();
     loop {
         let candidate = dir.join(".claude").join("system-prompt.md");

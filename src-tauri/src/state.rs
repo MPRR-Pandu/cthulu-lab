@@ -29,4 +29,6 @@ pub struct AppState {
     pub active_processes: Arc<RwLock<HashMap<String, Arc<Mutex<ChildStdin>>>>>,
     /// Budget cap in USD for --max-budget-usd flag
     pub budget_cap: Arc<RwLock<f64>>,
+    /// Tracks delegation depth per agent chain to prevent infinite loops (max depth 2)
+    pub delegation_depth: Arc<RwLock<HashMap<String, u32>>>,
 }

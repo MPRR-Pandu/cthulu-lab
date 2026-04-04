@@ -19,28 +19,31 @@ export interface GatewayHealth {
 }
 
 export async function gatewayHealth(): Promise<GatewayHealth | null> {
+  const url = getGatewayUrl();
+  if (!url) return null;
   try {
-    return await invoke<GatewayHealth>("gateway_health", { gatewayUrl: getGatewayUrl() });
+    return await invoke<GatewayHealth>("gateway_health", { gatewayUrl: url });
   } catch { return null; }
 }
 
 export async function listVMs(): Promise<VM[]> {
+  const url = getGatewayUrl();
+  if (!url) return [];
   try {
-    return await invoke<VM[]>("gateway_list_vms", { gatewayUrl: getGatewayUrl() });
+    return await invoke<VM[]>("gateway_list_vms", { gatewayUrl: url });
   } catch { return []; }
 }
 
-export async function createVM(tier: string): Promise<VM | null> {
-  try {
-    return await invoke<VM>("gateway_create_vm", { gatewayUrl: getGatewayUrl(), tier });
-  } catch { return null; }
+export async function createVM(tier: string): Promise<VM> {
+  const url = getGatewayUrl();
+  if (!url) throw new Error("Gateway URL not configured. Set it in Settings > Connection.");
+  return invoke<VM>("gateway_create_vm", { gatewayUrl: url, tier });
 }
 
-export async function deleteVM(vmId: number): Promise<boolean> {
-  try {
-    await invoke<void>("gateway_delete_vm", { gatewayUrl: getGatewayUrl(), vmId });
-    return true;
-  } catch { return false; }
+export async function deleteVM(vmId: number): Promise<void> {
+  const url = getGatewayUrl();
+  if (!url) throw new Error("Gateway URL not configured.");
+  await invoke<void>("gateway_delete_vm", { gatewayUrl: url, vmId });
 }
 
 export interface ExecResult {
@@ -51,5 +54,7 @@ export interface ExecResult {
 }
 
 export async function execInVm(vmId: number, command: string): Promise<ExecResult> {
-  return invoke<ExecResult>("gateway_exec", { gatewayUrl: getGatewayUrl(), vmId, command });
+  const url = getGatewayUrl();
+  if (!url) throw new Error("Gateway URL not configured.");
+  return invoke<ExecResult>("gateway_exec", { gatewayUrl: url, vmId, command });
 }
