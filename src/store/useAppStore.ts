@@ -3,6 +3,39 @@ import type { AgentConfig } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import type { InboxMessage } from "../types/inbox";
 
+// Fast time formatters — toLocaleTimeString is ~400x slower than manual formatting
+function fmtHHMM(): string {
+  const d = new Date();
+  const h = d.getHours();
+  const m = d.getMinutes();
+  return `${h < 10 ? "0" : ""}${h}:${m < 10 ? "0" : ""}${m}`;
+}
+
+function fmtHHMMSS(): string {
+  const d = new Date();
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const s = d.getSeconds();
+  return `${h < 10 ? "0" : ""}${h}:${m < 10 ? "0" : ""}${m}:${s < 10 ? "0" : ""}${s}`;
+}
+
+// Debounced localStorage writer — avoids blocking main thread on rapid state updates
+const pendingWrites = new Map<string, string>();
+let writeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedLocalStorageSet(key: string, value: string) {
+  pendingWrites.set(key, value);
+  if (!writeTimer) {
+    writeTimer = setTimeout(() => {
+      for (const [k, v] of pendingWrites) {
+        localStorage.setItem(k, v);
+      }
+      pendingWrites.clear();
+      writeTimer = null;
+    }, 100);
+  }
+}
+
 export interface HeartbeatMessage {
   from: string;
   to: string;
@@ -128,7 +161,7 @@ interface AppState {
   removeSavedPrompt: (id: string) => void;
 
   // Background message IDs — scheduled tasks that shouldn't affect UI status
-  backgroundMessageIds: Set<string>;
+  backgroundMessageIds: Record<string, true>;
   addBackgroundMessageId: (messageId: string) => void;
 
   // Maps message IDs to scheduled task IDs for persistence
@@ -201,9 +234,10 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const messages = state.sessions[agentId];
       if (!messages) return state;
-      const updated = messages.map((m) =>
-        m.id === messageId ? { ...m, content: m.content + chunk } : m
-      );
+      const idx = messages.findIndex((m) => m.id === messageId);
+      if (idx === -1) return state;
+      const updated = messages.slice();
+      updated[idx] = { ...messages[idx], content: messages[idx].content + chunk };
       return { sessions: { ...state.sessions, [agentId]: updated } };
     }),
 
@@ -211,9 +245,10 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const messages = state.sessions[agentId];
       if (!messages) return state;
-      const updated = messages.map((m) =>
-        m.id === messageId ? { ...m, is_streaming: false } : m
-      );
+      const idx = messages.findIndex((m) => m.id === messageId);
+      if (idx === -1) return state;
+      const updated = messages.slice();
+      updated[idx] = { ...messages[idx], is_streaming: false };
       return { sessions: { ...state.sessions, [agentId]: updated } };
     }),
 
@@ -234,18 +269,20 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const messages = state.bgSessions[agentId];
       if (!messages) return state;
-      const updated = messages.map((m) =>
-        m.id === messageId ? { ...m, content: m.content + chunk } : m
-      );
+      const idx = messages.findIndex((m) => m.id === messageId);
+      if (idx === -1) return state;
+      const updated = messages.slice();
+      updated[idx] = { ...messages[idx], content: messages[idx].content + chunk };
       return { bgSessions: { ...state.bgSessions, [agentId]: updated } };
     }),
   finalizeBgMessage: (agentId, messageId) =>
     set((state) => {
       const messages = state.bgSessions[agentId];
       if (!messages) return state;
-      const updated = messages.map((m) =>
-        m.id === messageId ? { ...m, is_streaming: false } : m
-      );
+      const idx = messages.findIndex((m) => m.id === messageId);
+      if (idx === -1) return state;
+      const updated = messages.slice();
+      updated[idx] = { ...messages[idx], is_streaming: false };
       return { bgSessions: { ...state.bgSessions, [agentId]: updated } };
     }),
 
@@ -312,7 +349,7 @@ export const useAppStore = create<AppState>((set) => ({
   addActivity: (entry) =>
     set((state) => ({
       activityLog: [
-        { time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" }), ...entry },
+        { time: fmtHHMM(), ...entry },
         ...state.activityLog,
       ].slice(0, 50),
     })),
@@ -334,7 +371,7 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const existing = state.toolActivity[agentId] ?? [];
       const entry = {
-        time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        time: fmtHHMMSS(),
         tool,
         input,
       };
@@ -403,7 +440,7 @@ export const useAppStore = create<AppState>((set) => ({
         timestamp: new Date().toISOString(),
       };
       const updated = [...state.lessons, entry].slice(-100);
-      localStorage.setItem("cthulu-lessons", JSON.stringify(updated));
+      debouncedLocalStorageSet("cthulu-lessons", JSON.stringify(updated));
       return { lessons: updated };
     }),
   resolveLesson: (lessonId, fix) =>
@@ -411,13 +448,13 @@ export const useAppStore = create<AppState>((set) => ({
       const updated = state.lessons.map((l) =>
         l.id === lessonId ? { ...l, fix } : l
       );
-      localStorage.setItem("cthulu-lessons", JSON.stringify(updated));
+      debouncedLocalStorageSet("cthulu-lessons", JSON.stringify(updated));
       return { lessons: updated };
     }),
   removeLesson: (lessonId) =>
     set((state) => {
       const updated = state.lessons.filter((l) => l.id !== lessonId);
-      localStorage.setItem("cthulu-lessons", JSON.stringify(updated));
+      debouncedLocalStorageSet("cthulu-lessons", JSON.stringify(updated));
       return { lessons: updated };
     }),
 
@@ -428,14 +465,14 @@ export const useAppStore = create<AppState>((set) => ({
       const updated = [
         ...state.scheduledTasks,
         { id: crypto.randomUUID(), task, agent, intervalMs, active: true, lastRun: null },
-      ];
-      localStorage.setItem("cthulu-scheduled-tasks", JSON.stringify(updated));
+      ].slice(-100);
+      debouncedLocalStorageSet("cthulu-scheduled-tasks", JSON.stringify(updated));
       return { scheduledTasks: updated };
     }),
   removeScheduledTask: (id) =>
     set((state) => {
       const updated = state.scheduledTasks.filter((t) => t.id !== id);
-      localStorage.setItem("cthulu-scheduled-tasks", JSON.stringify(updated));
+      debouncedLocalStorageSet("cthulu-scheduled-tasks", JSON.stringify(updated));
       return { scheduledTasks: updated };
     }),
   toggleScheduledTask: (id) =>
@@ -443,7 +480,7 @@ export const useAppStore = create<AppState>((set) => ({
       const updated = state.scheduledTasks.map((t) =>
         t.id === id ? { ...t, active: !t.active } : t
       );
-      localStorage.setItem("cthulu-scheduled-tasks", JSON.stringify(updated));
+      debouncedLocalStorageSet("cthulu-scheduled-tasks", JSON.stringify(updated));
       return { scheduledTasks: updated };
     }),
   updateLastRun: (id) =>
@@ -451,7 +488,7 @@ export const useAppStore = create<AppState>((set) => ({
       const updated = state.scheduledTasks.map((t) =>
         t.id === id ? { ...t, lastRun: new Date().toISOString() } : t
       );
-      localStorage.setItem("cthulu-scheduled-tasks", JSON.stringify(updated));
+      debouncedLocalStorageSet("cthulu-scheduled-tasks", JSON.stringify(updated));
       return { scheduledTasks: updated };
     }),
 
@@ -462,24 +499,22 @@ export const useAppStore = create<AppState>((set) => ({
       const updated = [
         ...state.savedPrompts,
         { id: crypto.randomUUID(), name, task, prompt, agent, createdAt: new Date().toISOString() },
-      ];
-      localStorage.setItem("cthulu_saved_prompts", JSON.stringify(updated));
+      ].slice(-100);
+      debouncedLocalStorageSet("cthulu_saved_prompts", JSON.stringify(updated));
       return { savedPrompts: updated };
     }),
   removeSavedPrompt: (id) =>
     set((state) => {
       const updated = state.savedPrompts.filter((p) => p.id !== id);
-      localStorage.setItem("cthulu_saved_prompts", JSON.stringify(updated));
+      debouncedLocalStorageSet("cthulu_saved_prompts", JSON.stringify(updated));
       return { savedPrompts: updated };
     }),
 
-  backgroundMessageIds: new Set<string>(),
+  backgroundMessageIds: {} as Record<string, true>,
   addBackgroundMessageId: (messageId) =>
-    set((state) => {
-      const next = new Set(state.backgroundMessageIds);
-      next.add(messageId);
-      return { backgroundMessageIds: next };
-    }),
+    set((state) => ({
+      backgroundMessageIds: { ...state.backgroundMessageIds, [messageId]: true as const },
+    })),
 
   bgMessageToTaskId: {},
   setBgMessageTaskId: (messageId, taskId) =>

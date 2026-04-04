@@ -77,7 +77,7 @@ export function useStreamListener() {
 
   useEffect(() => {
     const unlisten = onChatStream((chunk) => {
-      const isBackground = useAppStore.getState().backgroundMessageIds.has(chunk.message_id);
+      const isBackground = chunk.message_id in useAppStore.getState().backgroundMessageIds;
 
       if (chunk.done) {
         if (rafRef.current) {
