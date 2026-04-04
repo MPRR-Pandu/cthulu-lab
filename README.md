@@ -175,8 +175,8 @@ A native macOS desktop app (Tauri + React) that lets you:
 
 ### Development
 ```bash
-git clone https://github.com/MPRR-Pandu/cmd-center.git
-cd cmd-center && npm install
+git clone https://github.com/MPRR-Pandu/cthulu-lab.git
+cd cthulu-lab && npm install
 npm run tauri dev
 ```
 
