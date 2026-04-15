@@ -32,24 +32,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Verify we have write access to create releases
-          PERM=$(gh api repos/${{ github.repository }} --jq '.permissions.push // false')
-          if [ "$PERM" != "true" ]; then
-            echo "::error::Insufficient permissions — push access required to create releases"
-            echo "allowed=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
+          # Verify GITHUB_TOKEN has contents:write by checking token permissions
+          # The GITHUB_TOKEN in Actions doesn't expose .permissions on the repo API,
+          # so we check the token's own scopes via the /installation/repositories or
+          # simply verify we can read the repo (if we got this far, the workflow ran).
+          # The real gate is the `permissions: contents: write` block above —
+          # GitHub enforces it at the workflow level.
 
-          # Verify Actions are enabled for this repo
-          ACTIONS=$(gh api repos/${{ github.repository }}/actions/permissions --jq '.enabled // false' 2>/dev/null || echo "false")
-          if [ "$ACTIONS" != "true" ]; then
-            echo "::error::GitHub Actions not enabled for this repository"
+          # Sanity check: confirm repo exists and token is valid
+          REPO=$(gh api repos/${{ github.repository }} --jq '.full_name' 2>/dev/null || echo "")
+          if [ -z "$REPO" ]; then
+            echo "::error::Cannot access repository — check GITHUB_TOKEN"
             echo "allowed=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
           echo "allowed=true" >> "$GITHUB_OUTPUT"
-          echo "✅ Permissions verified — proceeding with release"
+          echo "✅ Token valid for $REPO — proceeding with release"
 
   build-macos:
     needs: check-permissions
