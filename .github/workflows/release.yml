@@ -90,13 +90,22 @@ jobs:
 
       - name: Build Tauri app (universal macOS)
         uses: tauri-apps/tauri-action@v0
+        id: tauri-build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ steps.tag.outputs.version }}
           releaseName: "Cthulu Lab ${{ steps.tag.outputs.version }}"
           releaseBody: |
+            ## Cthulu Lab ${{ steps.tag.outputs.version }}
+
+            ### Downloads
+            | Platform | File |
+            |----------|------|
+            | macOS (Universal) | `Cthulu-Lab_${{ steps.tag.outputs.version }}_universal.dmg` |
+
             See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
           releaseDraft: ${{ steps.tag.outputs.draft }}
           prerelease: false
-          args: --target universal-apple-darwin
+          includeUpdaterJson: false
+          args: --target universal-apple-darwin --bundles dmg
