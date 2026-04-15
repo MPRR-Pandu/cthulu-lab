@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Verify the workflow has required permissions before running expensive builds
+permissions:
+  contents: write
+
+jobs:
+  # Gate: check org/repo permissions before running the build
+  check-permissions:
+    runs-on: ubuntu-latest
+    outputs:
+      can-release: ${{ steps.check.outputs.allowed }}
+    steps:
+      - name: Check workflow permissions
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Verify we have write access to create releases
+          PERM=$(gh api repos/${{ github.repository }} --jq '.permissions.push // false')
+          if [ "$PERM" != "true" ]; then
+            echo "::error::Insufficient permissions — push access required to create releases"
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # Verify Actions are enabled for this repo
+          ACTIONS=$(gh api repos/${{ github.repository }}/actions/permissions --jq '.enabled // false' 2>/dev/null || echo "false")
+          if [ "$ACTIONS" != "true" ]; then
+            echo "::error::GitHub Actions not enabled for this repository"
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "allowed=true" >> "$GITHUB_OUTPUT"
+          echo "✅ Permissions verified — proceeding with release"
+
+  build-macos:
+    needs: check-permissions
+    if: needs.check-permissions.outputs.can-release == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri app (universal macOS)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Cthulu Lab ${{ github.ref_name }}"
+          releaseBody: |
+            See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          releaseDraft: true
+          prerelease: false
+          args: --target universal-apple-darwin
