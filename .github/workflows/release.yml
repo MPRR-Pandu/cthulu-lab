@@ -16,45 +16,24 @@ on:
         default: true
         type: boolean
 
-# Verify the workflow has required permissions before running expensive builds
 permissions:
   contents: write
 
 jobs:
-  # Gate: check org/repo permissions before running the build
-  check-permissions:
-    runs-on: ubuntu-latest
-    outputs:
-      can-release: ${{ steps.check.outputs.allowed }}
+  release:
+    runs-on: macos-latest
     steps:
-      - name: Check workflow permissions
-        id: check
+      - name: Check permissions
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Verify GITHUB_TOKEN has contents:write by checking token permissions
-          # The GITHUB_TOKEN in Actions doesn't expose .permissions on the repo API,
-          # so we check the token's own scopes via the /installation/repositories or
-          # simply verify we can read the repo (if we got this far, the workflow ran).
-          # The real gate is the `permissions: contents: write` block above —
-          # GitHub enforces it at the workflow level.
-
-          # Sanity check: confirm repo exists and token is valid
           REPO=$(gh api repos/${{ github.repository }} --jq '.full_name' 2>/dev/null || echo "")
           if [ -z "$REPO" ]; then
             echo "::error::Cannot access repository — check GITHUB_TOKEN"
-            echo "allowed=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-
-          echo "allowed=true" >> "$GITHUB_OUTPUT"
           echo "✅ Token valid for $REPO — proceeding with release"
 
-  build-macos:
-    needs: check-permissions
-    if: needs.check-permissions.outputs.can-release == 'true'
-    runs-on: macos-latest
-    steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
