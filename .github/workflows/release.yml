@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+        type: string
+      draft:
+        description: "Create as draft release"
+        required: false
+        default: true
+        type: boolean
 
 # Verify the workflow has required permissions before running expensive builds
 permissions:
@@ -66,15 +77,26 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "draft=${{ inputs.draft }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "draft=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build Tauri app (universal macOS)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Cthulu Lab ${{ github.ref_name }}"
+          tagName: ${{ steps.tag.outputs.version }}
+          releaseName: "Cthulu Lab ${{ steps.tag.outputs.version }}"
           releaseBody: |
             See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
-          releaseDraft: true
+          releaseDraft: ${{ steps.tag.outputs.draft }}
           prerelease: false
           args: --target universal-apple-darwin
