@@ -47,14 +47,22 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
-          # Uncomment to wait for specific host connectivity:
-          # ping: your-internal-host.tailnet-name.ts.net
+
+      - name: Configure exit node
+        run: |
+          EXIT_NODE="${{ secrets.TS_EXIT_NODE }}"
+          if [ -n "$EXIT_NODE" ]; then
+            echo "Configuring exit node: $EXIT_NODE"
+            sudo tailscale set --exit-node="$EXIT_NODE"
+          fi
 
       - name: Wait for network propagation
         run: |
           echo "Waiting for Tailscale network to stabilize..."
           sleep 5
           tailscale status
+          echo ""
+          echo "Public IP: $(curl -s https://ifconfig.me)"
 
       - name: Run API health checks
         run: |

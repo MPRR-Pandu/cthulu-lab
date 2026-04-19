@@ -1,16 +1,21 @@
 # Tailscale VPN Connection Test Workflow
 #
 # This workflow connects to your Tailscale network and tests connectivity
-# to a firewall-protected endpoint that only allows Tailscale IPs.
+# to a firewall-protected endpoint. Uses an exit node so external services
+# (like Vercel) see a consistent IP address.
 #
 # Prerequisites:
 # 1. Create OAuth Client at https://login.tailscale.com/admin/settings/oauth
 #    - Grant scope: auth_keys (write)
 # 2. Add tag:ci to your Tailscale ACL
-# 3. Add these GitHub secrets:
+# 3. Configure an exit node on your tailnet:
+#    - On your server: sudo tailscale up --advertise-exit-node
+#    - Approve in admin console: https://login.tailscale.com/admin/machines
+# 4. Add these GitHub secrets:
 #    - TS_OAUTH_CLIENT_ID: Your Tailscale OAuth Client ID
 #    - TS_OAUTH_SECRET: Your Tailscale OAuth Client Secret
-#    - PROTECTED_ENDPOINT: The URL to test (optional, can hardcode below)
+#    - TS_EXIT_NODE: Your exit node hostname (e.g., my-server or my-server.tailnet.ts.net)
+#    - PROTECTED_ENDPOINT: The URL to test (optional)
 
 name: Tailscale VPN Connect Test
 
@@ -19,6 +24,10 @@ on:
     inputs:
       endpoint:
         description: 'Endpoint URL to test (e.g., https://api.example.com/health)'
+        required: false
+        type: string
+      exit_node:
+        description: 'Exit node hostname (leave empty to use TS_EXIT_NODE secret)'
         required: false
         type: string
       timeout:
@@ -42,6 +51,18 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
+      - name: Configure exit node
+        run: |
+          EXIT_NODE="${{ inputs.exit_node || secrets.TS_EXIT_NODE }}"
+
+          if [ -n "$EXIT_NODE" ]; then
+            echo "Configuring exit node: $EXIT_NODE"
+            sudo tailscale set --exit-node="$EXIT_NODE"
+            echo "Exit node configured successfully"
+          else
+            echo "No exit node specified - traffic will use direct routing"
+          fi
+
       - name: Verify Tailscale connection
         run: |
           echo "Checking Tailscale status..."
@@ -49,6 +70,9 @@ jobs:
           echo ""
           echo "Tailscale IP:"
           tailscale ip -4
+          echo ""
+          echo "Public IP (as seen by external services):"
+          curl -s https://ifconfig.me || curl -s https://api.ipify.org
 
       - name: Test endpoint connectivity
         run: |

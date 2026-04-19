@@ -44,8 +44,14 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
-          # Wait for your deployment target to be reachable:
-          # ping: k8s-master.tailnet.ts.net,deploy-server.tailnet.ts.net
+
+      - name: Configure exit node
+        run: |
+          EXIT_NODE="${{ secrets.TS_EXIT_NODE }}"
+          if [ -n "$EXIT_NODE" ]; then
+            echo "Configuring exit node: $EXIT_NODE"
+            sudo tailscale set --exit-node="$EXIT_NODE"
+          fi
 
       - name: Verify VPN connectivity
         run: |
@@ -53,6 +59,7 @@ jobs:
           tailscale status
           echo ""
           echo "Tailscale IP: $(tailscale ip -4)"
+          echo "Public IP: $(curl -s https://ifconfig.me)"
 
       # ============================================================
       # KUBERNETES DEPLOYMENT EXAMPLE
