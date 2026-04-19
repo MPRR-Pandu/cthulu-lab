@@ -1,0 +1,89 @@
+# Tailscale VPN Connection Test Workflow
+#
+# This workflow connects to your Tailscale network and tests connectivity
+# to a firewall-protected endpoint that only allows Tailscale IPs.
+#
+# Prerequisites:
+# 1. Create OAuth Client at https://login.tailscale.com/admin/settings/oauth
+#    - Grant scope: auth_keys (write)
+# 2. Add tag:ci to your Tailscale ACL
+# 3. Add these GitHub secrets:
+#    - TS_OAUTH_CLIENT_ID: Your Tailscale OAuth Client ID
+#    - TS_OAUTH_SECRET: Your Tailscale OAuth Client Secret
+#    - PROTECTED_ENDPOINT: The URL to test (optional, can hardcode below)
+
+name: Tailscale VPN Connect Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: 'Endpoint URL to test (e.g., https://api.example.com/health)'
+        required: false
+        type: string
+      timeout:
+        description: 'Connection timeout in seconds'
+        required: false
+        default: '30'
+        type: string
+
+jobs:
+  connect-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Verify Tailscale connection
+        run: |
+          echo "Checking Tailscale status..."
+          tailscale status
+          echo ""
+          echo "Tailscale IP:"
+          tailscale ip -4
+
+      - name: Test endpoint connectivity
+        run: |
+          ENDPOINT="${{ inputs.endpoint || secrets.PROTECTED_ENDPOINT || 'https://httpbin.org/ip' }}"
+          TIMEOUT="${{ inputs.timeout || '30' }}"
+
+          echo "Testing connectivity to: $ENDPOINT"
+          echo "Timeout: ${TIMEOUT}s"
+          echo ""
+
+          # Test with curl
+          HTTP_CODE=$(curl -s -o /tmp/response.txt -w "%{http_code}" \
+            --connect-timeout "$TIMEOUT" \
+            --max-time "$TIMEOUT" \
+            "$ENDPOINT" || echo "000")
+
+          echo "HTTP Status Code: $HTTP_CODE"
+          echo ""
+          echo "Response:"
+          cat /tmp/response.txt
+          echo ""
+
+          # Check if successful
+          if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+            echo "SUCCESS: Endpoint is accessible via Tailscale VPN"
+          elif [[ "$HTTP_CODE" == "000" ]]; then
+            echo "ERROR: Connection failed (timeout or network error)"
+            exit 1
+          else
+            echo "WARNING: Endpoint returned non-2xx status code"
+            exit 1
+          fi
+
+      - name: Show Tailscale network info
+        if: always()
+        run: |
+          echo "=== Tailscale Network Info ==="
+          tailscale status --json | jq -r '.Self | {hostname: .HostName, tailscaleIP: .TailscaleIPs[0], online: .Online}'
