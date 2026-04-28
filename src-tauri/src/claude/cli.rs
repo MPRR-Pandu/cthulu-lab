@@ -1,6 +1,46 @@
 use std::process::Stdio;
 use tokio::process::Command;
 
+/// macOS .app bundles launched from Finder inherit a minimal PATH from launchd
+/// (no `~/.local/bin`, no Homebrew, no nvm). The claude CLI is most often
+/// installed in one of these dirs, so we both extend PATH and resolve the
+/// binary by absolute path before spawning.
+fn locate_claude_binary() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let candidates = [
+        format!("{}/.local/bin/claude", home),
+        format!("{}/.claude/local/claude", home),
+        format!("{}/.npm-global/bin/claude", home),
+        "/opt/homebrew/bin/claude".to_string(),
+        "/usr/local/bin/claude".to_string(),
+        "/usr/bin/claude".to_string(),
+    ];
+    for c in &candidates {
+        if std::path::Path::new(c).is_file() {
+            return c.clone();
+        }
+    }
+    // Fall back to bare name and let PATH resolution take over.
+    "claude".to_string()
+}
+
+fn augmented_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let extras = [
+        format!("{}/.local/bin", home),
+        format!("{}/.claude/local", home),
+        format!("{}/.npm-global/bin", home),
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+    ];
+    let current = std::env::var("PATH").unwrap_or_default();
+    let mut parts: Vec<String> = extras.into_iter().collect();
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts.join(":")
+}
+
 /// Spawn the claude CLI for a chat turn.
 /// No agent personas, no system prompt injection — plain claude.
 /// User-defined skills and memory are loaded by the CLI itself from
@@ -30,7 +70,9 @@ pub async fn spawn_claude(
         let _ = std::fs::create_dir_all(&marker);
     }
 
-    let mut cmd = Command::new("claude");
+    let claude_bin = locate_claude_binary();
+    tracing::info!(agent = %agent_id, bin = %claude_bin, "resolved claude CLI path");
+    let mut cmd = Command::new(&claude_bin);
 
     cmd.arg("--verbose")
         .arg("--print")
@@ -79,7 +121,7 @@ pub async fn spawn_claude(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("HOME", std::env::var("HOME").unwrap_or_default())
-        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("PATH", augmented_path())
         .env("TERM", std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string()))
         .env("WORKSPACE_ROOT", working_dir)
         // Tell claude CLI which dir is the project root so it doesn't walk up.
