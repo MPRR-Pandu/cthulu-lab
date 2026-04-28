@@ -69,6 +69,10 @@ pub async fn spawn_claude(
 
     cmd.arg("--include-partial-messages");
 
+    // Cap tool-use loop. Prevents 5-10 min hangs when model loops through
+    // many file reads / searches before responding.
+    cmd.arg("--max-turns").arg("10");
+
     cmd.arg("--max-budget-usd").arg(format!("{:.1}", budget_cap));
 
     cmd.arg(message);
