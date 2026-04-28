@@ -1,29 +1,10 @@
-use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
 
-/// Find the shared system-prompt.md — checks ~/.cthulu-lab/ first, then CWD
-fn discover_system_prompt() -> Option<String> {
-    // Check ~/.cthulu-lab/system-prompt.md (bundled)
-    let bundled = crate::bundled::home_dir().join("system-prompt.md");
-    if bundled.is_file() {
-        return Some(bundled.to_string_lossy().to_string());
-    }
-
-    // Walk up from CWD (dev mode)
-    let cwd = std::env::current_dir().ok()?;
-    let mut dir = cwd.as_path();
-    loop {
-        let candidate = dir.join(".claude").join("system-prompt.md");
-        if candidate.is_file() {
-            return Some(candidate.to_string_lossy().to_string());
-        }
-        dir = dir.parent()?;
-    }
-}
-
-/// Spawn the claude CLI with an agent and message.
-/// Permission mode controlled by auto_approve flag.
+/// Spawn the claude CLI for a chat turn.
+/// No agent personas, no system prompt injection — plain claude.
+/// User-defined skills and memory are loaded by the CLI itself from
+/// ~/.claude/ and the workspace .claude/ dir.
 pub async fn spawn_claude(
     agent_id: &str,
     message: &str,
@@ -57,20 +38,10 @@ pub async fn spawn_claude(
 
     if let Some(sid) = session_id {
         cmd.arg("--resume").arg(sid);
-    } else {
-        cmd.arg("--agent").arg(agent_id);
-    }
-
-    // Inject shared system prompt (Layer 1: system rules for ALL agents)
-    let system_prompt_path = discover_system_prompt();
-    if let Some(sp) = &system_prompt_path {
-        cmd.arg("--append-system-prompt-file").arg(sp);
     }
 
     cmd.arg("--include-partial-messages");
 
-    // Cap tool-use loop. Prevents 5-10 min hangs when model loops through
-    // many file reads / searches before responding.
     cmd.arg("--max-turns").arg("10");
 
     cmd.arg("--max-budget-usd").arg(format!("{:.1}", budget_cap));
