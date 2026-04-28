@@ -73,6 +73,20 @@ pub async fn spawn_claude(
 
     cmd.arg(message);
 
+    let arg_summary: Vec<String> = cmd
+        .as_std()
+        .get_args()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    tracing::info!(
+        agent = %agent_id,
+        workspace = %working_dir,
+        speed = %speed_mode,
+        resume = session_id.is_some(),
+        args = ?arg_summary,
+        "spawning claude CLI"
+    );
+
     let child = cmd
         .current_dir(working_dir)
         .stdin(Stdio::piped())
@@ -85,6 +99,8 @@ pub async fn spawn_claude(
         .env_remove("ANTHROPIC_API_KEY")
         .spawn()
         .map_err(|e| format!("Failed to spawn claude CLI: {}", e))?;
+
+    tracing::info!(agent = %agent_id, pid = ?child.id(), "claude CLI spawned");
 
     Ok(child)
 }
