@@ -1,13 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-/// All .claude/ files embedded in the binary at compile time
+/// All .claude/ files embedded in the binary at compile time.
+/// Agent personas and system-prompt removed — claude CLI now runs plain;
+/// users add their own skills/memory via the UI.
 const BUNDLED_FILES: &[(&str, &str)] = &[
-    ("agents/analyst.md", include_str!("../../.claude/agents/analyst.md")),
-    ("agents/builder.md", include_str!("../../.claude/agents/builder.md")),
-    ("agents/fixer.md", include_str!("../../.claude/agents/fixer.md")),
-    ("agents/lead.md", include_str!("../../.claude/agents/lead.md")),
-    ("agents/reviewer.md", include_str!("../../.claude/agents/reviewer.md")),
     ("commands/brainstorm.md", include_str!("../../.claude/commands/brainstorm.md")),
     ("commands/build.md", include_str!("../../.claude/commands/build.md")),
     ("commands/fix.md", include_str!("../../.claude/commands/fix.md")),
@@ -28,7 +25,6 @@ const BUNDLED_FILES: &[(&str, &str)] = &[
     ("skills/security-audit/SKILL.md", include_str!("../../.claude/skills/security-audit/SKILL.md")),
     ("skills/sprint-planner/SKILL.md", include_str!("../../.claude/skills/sprint-planner/SKILL.md")),
     ("skills/vm-gateway/SKILL.md", include_str!("../../.claude/skills/vm-gateway/SKILL.md")),
-    ("system-prompt.md", include_str!("../../.claude/system-prompt.md")),
 ];
 
 /// Returns ~/.cthulu-lab path
