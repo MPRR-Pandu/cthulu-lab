@@ -185,7 +185,7 @@ export function SettingsPanel() {
                   type="text"
                   value={apiUrl}
                   onChange={(e) => { setApiUrl(e.target.value); setApiStatus("idle"); setApiError(""); setApiInfo(""); }}
-                  placeholder="http://localhost:3000/api"
+                  placeholder="http://localhost:3001/api"
                   className="flex-1 bg-black border border-[#333] text-[#e0e0e0] px-2 py-1 font-mono text-[10px] focus:outline-none focus:border-[#4de8e0]"
                 />
                 <button
@@ -210,7 +210,7 @@ export function SettingsPanel() {
                   type="text"
                   value={gatewayUrl}
                   onChange={(e) => { setGatewayUrl(e.target.value); setGwStatus("idle"); setGwError(""); setGwInfo(""); }}
-                  placeholder="https://your-gateway:8080"
+                  placeholder="http://localhost:8080"
                   className="flex-1 bg-black border border-[#333] text-[#e0e0e0] px-2 py-1 font-mono text-[10px] focus:outline-none focus:border-[#4de8e0]"
                 />
                 <button

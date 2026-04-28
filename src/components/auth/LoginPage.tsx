@@ -36,8 +36,11 @@ export function LoginPage() {
       const status = await checkClaudeAuth();
 
       if (status.loggedIn) {
-        if (status.email && !status.email.endsWith("@bitcoin.com")) {
-          setError(`Access denied. Only @bitcoin.com accounts are allowed. (${status.email})`);
+        // Optional org email gate — set VITE_ALLOWED_EMAIL_DOMAIN to e.g.
+        // "example.com" to restrict logins. Empty/unset disables the gate.
+        const allowedDomain = (import.meta.env.VITE_ALLOWED_EMAIL_DOMAIN ?? "").trim();
+        if (allowedDomain && status.email && !status.email.endsWith(`@${allowedDomain}`)) {
+          setError(`Access denied. Only @${allowedDomain} accounts are allowed. (${status.email})`);
           return;
         }
 
