@@ -18,8 +18,16 @@ pub async fn spawn_claude(
         return Err("No workspace set. Add a workspace first.".to_string());
     }
 
-    if !std::path::Path::new(working_dir).is_dir() {
+    let workspace_path = std::path::Path::new(working_dir);
+    if !workspace_path.is_dir() {
         return Err(format!("Workspace directory not found: {}", working_dir));
+    }
+
+    // Drop a `.claude/` marker so claude CLI treats the workspace as the
+    // project root instead of walking up to a parent dir or $HOME.
+    let marker = workspace_path.join(".claude");
+    if !marker.exists() {
+        let _ = std::fs::create_dir_all(&marker);
     }
 
     let mut cmd = Command::new("claude");
@@ -41,6 +49,9 @@ pub async fn spawn_claude(
     }
 
     cmd.arg("--include-partial-messages");
+
+    // Pin claude CLI scope to the workspace dir.
+    cmd.arg("--add-dir").arg(working_dir);
 
     cmd.arg("--max-turns").arg("10");
 
@@ -71,6 +82,8 @@ pub async fn spawn_claude(
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("TERM", std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string()))
         .env("WORKSPACE_ROOT", working_dir)
+        // Tell claude CLI which dir is the project root so it doesn't walk up.
+        .env("CLAUDE_PROJECT_DIR", working_dir)
         .env_remove("ANTHROPIC_API_KEY")
         .spawn()
         .map_err(|e| format!("Failed to spawn claude CLI: {}", e))?;
