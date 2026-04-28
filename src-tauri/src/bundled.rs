@@ -2,9 +2,15 @@ use std::fs;
 use std::path::PathBuf;
 
 /// All .claude/ files embedded in the binary at compile time.
-/// Agent personas and system-prompt removed — claude CLI now runs plain;
-/// users add their own skills/memory via the UI.
+/// Agent files are minimal UI stubs (frontmatter for color/name/sprite) —
+/// the claude CLI itself runs plain (no persona injection). Users add
+/// behavior via skills, commands, and per-workspace CLAUDE.md.
 const BUNDLED_FILES: &[(&str, &str)] = &[
+    ("agents/analyst.md", include_str!("../../.claude/agents/analyst.md")),
+    ("agents/builder.md", include_str!("../../.claude/agents/builder.md")),
+    ("agents/fixer.md", include_str!("../../.claude/agents/fixer.md")),
+    ("agents/lead.md", include_str!("../../.claude/agents/lead.md")),
+    ("agents/reviewer.md", include_str!("../../.claude/agents/reviewer.md")),
     ("commands/brainstorm.md", include_str!("../../.claude/commands/brainstorm.md")),
     ("commands/build.md", include_str!("../../.claude/commands/build.md")),
     ("commands/fix.md", include_str!("../../.claude/commands/fix.md")),
