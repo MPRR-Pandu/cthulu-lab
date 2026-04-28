@@ -57,6 +57,15 @@ export function useChat() {
         addMessage(activeAgentId, agentMsg);
       } catch (err) {
         console.error("Failed to send:", err);
+        const errText = err instanceof Error ? err.message : String(err);
+        addMessage(activeAgentId, {
+          id: crypto.randomUUID(),
+          role: "Agent" as const,
+          content: `[Error: ${errText}]`,
+          timestamp: new Date().toISOString(),
+          agent_id: activeAgentId,
+          is_streaming: false,
+        });
         setSendingAgent(activeAgentId, false);
       }
     },

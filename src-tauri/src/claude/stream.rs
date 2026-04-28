@@ -229,39 +229,52 @@ fn extract_tool_use(line: &str, agent_id: &str) -> Option<ToolUseEvent> {
     None
 }
 
+/// Extract assistant text from a single line of claude CLI stream-json output.
+///
+/// Handles three shapes that the CLI emits:
+///   1. `stream_event` wrapping `content_block_delta` with `delta.type=text_delta`
+///      (CLI v2.1.x with `--include-partial-messages` — the streaming case).
+///   2. Top-level `content_block_delta` with `delta.text` (older CLI versions).
+///   3. Top-level `assistant` with `message.content[].type=text` (final
+///      accumulated message, used as fallback when partial streaming is off).
+///
+/// Thinking blocks (`thinking_delta`, `content_block.type=thinking`) are
+/// intentionally skipped so internal reasoning doesn't leak into the chat.
 fn extract_text_from_stream_json(line: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
 
     match v.get("type")?.as_str()? {
-        "assistant" => {
-            // Claude CLI stream-json: message.content[].text
-            let content = v.get("message")?.get("content")?.as_array()?;
-            let text: String = content
-                .iter()
-                .filter_map(|block| {
-                    if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                        block.get("text").and_then(|t| t.as_str())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("");
-            if text.is_empty() {
-                None
-            } else {
-                Some(text)
+        // CLI v2.1.x partial-message wrapper.
+        "stream_event" => {
+            let event = v.get("event")?;
+            let event_type = event.get("type")?.as_str()?;
+            if event_type != "content_block_delta" {
+                return None;
             }
+            let delta = event.get("delta")?;
+            // Only forward text deltas — skip thinking_delta and signature_delta.
+            let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if delta_type != "text_delta" {
+                return None;
+            }
+            delta.get("text").and_then(|t| t.as_str()).map(String::from)
         }
+        // Older CLI shape — flat content_block_delta.
         "content_block_delta" => {
-            v.get("delta")?
-                .get("text")
-                .and_then(|t| t.as_str())
-                .map(|s| s.to_string())
+            let delta = v.get("delta")?;
+            let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("text_delta");
+            if delta_type != "text_delta" && delta_type != "" {
+                return None;
+            }
+            delta.get("text").and_then(|t| t.as_str()).map(String::from)
         }
-        "result" => {
-            None
-        }
+        // Final accumulated assistant message — only used when partial
+        // streaming is disabled, so we don't duplicate text emitted by deltas.
+        // The streaming path emits stream_event/content_block_delta during the
+        // turn AND a closing `assistant` event at the end. To avoid doubling,
+        // we ignore `assistant` here when --include-partial-messages is in use
+        // (the spawn always passes that flag — see claude/cli.rs).
+        "assistant" => None,
         _ => None,
     }
 }

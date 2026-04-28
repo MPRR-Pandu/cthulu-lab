@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-/// All .claude/ files embedded in the binary at compile time
+/// All .claude/ files embedded in the binary at compile time.
+/// Agent files are minimal UI stubs (frontmatter for color/name/sprite) —
+/// the claude CLI itself runs plain (no persona injection). Users add
+/// behavior via skills, commands, and per-workspace CLAUDE.md.
 const BUNDLED_FILES: &[(&str, &str)] = &[
     ("agents/analyst.md", include_str!("../../.claude/agents/analyst.md")),
     ("agents/builder.md", include_str!("../../.claude/agents/builder.md")),
@@ -28,7 +31,6 @@ const BUNDLED_FILES: &[(&str, &str)] = &[
     ("skills/security-audit/SKILL.md", include_str!("../../.claude/skills/security-audit/SKILL.md")),
     ("skills/sprint-planner/SKILL.md", include_str!("../../.claude/skills/sprint-planner/SKILL.md")),
     ("skills/vm-gateway/SKILL.md", include_str!("../../.claude/skills/vm-gateway/SKILL.md")),
-    ("system-prompt.md", include_str!("../../.claude/system-prompt.md")),
 ];
 
 /// Returns ~/.cthulu-lab path
