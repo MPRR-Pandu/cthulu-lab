@@ -1,9 +1,11 @@
 use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::time::Instant;
+use tokio::time::{Duration, Instant};
 
 use crate::chat::manager::ChatManager;
 use crate::chat::types::StreamChunk;
+
+const STALL_WARN_SECS: u64 = 30;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ToolUseEvent {
@@ -57,7 +59,67 @@ pub async fn stream_response(
     let batch_interval = std::time::Duration::from_millis(50);
     let mut tool_call_count: u32 = 0;
 
-    while let Ok(Some(line)) = lines.next_line().await {
+    // Signal that the read loop has started so UI can show "waiting for first token".
+    tracing::info!(agent = %agent_id, "stream loop started, awaiting first line from claude CLI");
+    let _ = app_handle.emit(
+        "agent-debug",
+        serde_json::json!({
+            "agent_id": agent_id,
+            "message": "stream started, waiting for first token...",
+        }),
+    );
+
+    let stall_timeout = Duration::from_secs(STALL_WARN_SECS);
+    let mut first_line_seen = false;
+    let mut stall_ticks: u32 = 0;
+
+    loop {
+        let next = tokio::time::timeout(stall_timeout, lines.next_line()).await;
+
+        let line = match next {
+            Ok(Ok(Some(line))) => line,
+            Ok(Ok(None)) => break, // EOF — claude CLI exited
+            Ok(Err(e)) => {
+                tracing::error!(agent = %agent_id, "stdout read error: {}", e);
+                return Err(format!("stdout read error: {}", e));
+            }
+            Err(_) => {
+                stall_ticks += 1;
+                let waited = STALL_WARN_SECS * stall_ticks as u64;
+                let stage = if first_line_seen { "after first token" } else { "before first token" };
+                tracing::warn!(
+                    agent = %agent_id,
+                    "claude CLI stalled {}s {} — still waiting",
+                    waited, stage
+                );
+                let _ = app_handle.emit(
+                    "chat-stream-stalled",
+                    serde_json::json!({
+                        "agent_id": agent_id,
+                        "message_id": message_id,
+                        "waited_secs": waited,
+                        "first_line_seen": first_line_seen,
+                    }),
+                );
+                let _ = app_handle.emit(
+                    "agent-debug",
+                    serde_json::json!({
+                        "agent_id": agent_id,
+                        "message": format!("stalled {}s {} — still waiting", waited, stage),
+                    }),
+                );
+                continue;
+            }
+        };
+
+        if !first_line_seen {
+            first_line_seen = true;
+            stall_ticks = 0;
+            tracing::info!(agent = %agent_id, "first line received from claude CLI");
+        } else {
+            // Reset stall counter on any progress
+            stall_ticks = 0;
+        }
         if session_id.is_none() {
             if let Some(sid) = extract_session_id(&line) {
                 session_id = Some(sid);

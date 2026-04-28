@@ -298,6 +298,28 @@ export function useStreamListener() {
     };
   }, [addTokenUsage]);
 
+  // Listen for chat-stream-stalled events (no output from claude CLI for N seconds)
+  useEffect(() => {
+    const unlisten = listen<{
+      agent_id: string;
+      message_id: string;
+      waited_secs: number;
+      first_line_seen: boolean;
+    }>("chat-stream-stalled", (event) => {
+      const { agent_id, waited_secs, first_line_seen } = event.payload;
+      const stage = first_line_seen ? "after first token" : "before first token";
+      addActivity({
+        agent: agent_id,
+        event: `stalled ${waited_secs}s ${stage}`,
+      });
+      setDebugMessage(agent_id, `stalled ${waited_secs}s ${stage} — still waiting`);
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [addActivity, setDebugMessage]);
+
   // Listen for chat-stats to detect complex tasks
   useEffect(() => {
     const unlisten = listen<{
