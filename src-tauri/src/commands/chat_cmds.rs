@@ -4,7 +4,7 @@ use tauri::Emitter;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
-use crate::chat::types::{ChatMessage, Role};
+use crate::chat::types::{ChatMessage, Role, StreamChunk};
 use crate::claude;
 use crate::inbox::types::{InboxMessage, InboxMessageType};
 use crate::state::AppState;
@@ -72,25 +72,6 @@ pub async fn send_message(
         sessions.get(&agent_id).cloned()
     };
 
-    // Cancel any in-flight turn for this agent.
-    //
-    // Previously this only dropped the stdin handle, which left the CLI
-    // process running. Since `--resume <sid>` is per-agent, a second send
-    // before the first finished produced two claude processes racing on the
-    // same session — claude would block / exit silently and the user saw
-    // empty replies. Aborting the stream task drops the owned `Child`
-    // (spawned with `kill_on_drop(true)`) and SIGKILLs the CLI.
-    {
-        let mut streams = state.active_streams.write().await;
-        if let Some(handle) = streams.remove(&agent_id) {
-            handle.abort();
-        }
-    }
-    {
-        let mut procs = state.active_processes.write().await;
-        procs.remove(&agent_id);
-    }
-
     tracing::info!(
         agent = %agent_id,
         workspace = %working_dir,
@@ -98,6 +79,26 @@ pub async fn send_message(
         resume = existing_session.is_some(),
         "sending message"
     );
+
+    // Cancel-prev + spawn-new is held under a single write lock on
+    // `active_streams` so concurrent send_message calls for the same agent
+    // serialize. Without this guard, two callers could each take the
+    // previous handle, both spawn fresh claude processes, and the loser's
+    // handle would be evicted from the map — leaking an un-killable child.
+    //
+    // Lock acquisition is brief: `spawn_claude` only validates paths and
+    // calls `Command::spawn` (sync fork+exec under the hood); the stream
+    // loop itself runs inside the spawned task and doesn't hold this lock.
+    let mut streams = state.active_streams.write().await;
+    if let Some(prev) = streams.remove(&agent_id) {
+        prev.abort();
+        // Await the aborted task so its destructor drops the owned `Child`
+        // and `kill_on_drop(true)` finishes SIGKILLing the previous claude
+        // before we spawn the next one. Otherwise two CLI processes can
+        // briefly race on the same `--resume <sid>`.
+        let _ = prev.await;
+    }
+    state.active_processes.write().await.remove(&agent_id);
 
     // Spawn claude CLI — resume session if we have one
     let mut child = claude::cli::spawn_claude(
@@ -154,10 +155,7 @@ pub async fn send_message(
                         let mut counts = failure_counts.write().await;
                         counts.remove(&aid);
                     }
-                    let response_preview = {
-                        let text: String = last_agent_content.chars().take(80).collect();
-                        if last_agent_content.len() > 80 { format!("{}...", text) } else { text }
-                    };
+                    let response_preview = truncate_chars(&last_agent_content, 80);
                     let report = InboxMessage {
                         id: Uuid::new_v4().to_string(),
                         from: aid.clone(),
@@ -174,11 +172,26 @@ pub async fn send_message(
                     // Surface as an error so the user isn't staring at a
                     // blank bubble, and count it toward the loop-detection
                     // threshold like any other failure.
+                    //
+                    // `stream::stream_response` already emitted `done: true`
+                    // before returning, so the frontend has finalized the
+                    // message stub. We now backfill the bubble by emitting
+                    // a fresh `chat-stream` chunk with the error text — the
+                    // frontend's chunk handler will append it to the same
+                    // message_id even though the bubble is no longer
+                    // streaming.
                     let err_text =
                         "claude CLI exited without producing any output (session may be stale or rate-limited)";
+                    let err_line = format!("[Error: {}]", err_text);
                     tracing::warn!(agent = %aid, "{}", err_text);
-                    cm.append_to_streaming(&aid, &msg_id, &format!("[Error: {}]", err_text)).await;
+                    cm.append_to_streaming(&aid, &msg_id, &err_line).await;
                     cm.finalize_message(&aid, &msg_id).await;
+                    let _ = ah.emit("chat-stream", StreamChunk {
+                        agent_id: aid.clone(),
+                        message_id: msg_id.clone(),
+                        chunk: err_line,
+                        done: false,
+                    });
 
                     let count = {
                         let mut counts = failure_counts.write().await;
@@ -266,11 +279,8 @@ pub async fn send_message(
         active_procs.write().await.remove(&aid);
     });
 
-    state
-        .active_streams
-        .write()
-        .await
-        .insert(agent_id.clone(), handle);
+    streams.insert(agent_id.clone(), handle);
+    drop(streams);
 
     Ok(agent_msg_id)
 }
@@ -380,6 +390,19 @@ pub async fn delegate_to_agent(
     }
 
     result
+}
+
+/// Truncate `s` to at most `max` Unicode chars, appending `...` if truncated.
+/// Compares char count (not byte length) so multi-byte content isn't sliced
+/// mid-codepoint and the `...` marker stays accurate.
+fn truncate_chars(s: &str, max: usize) -> String {
+    let mut chars = s.chars();
+    let head: String = chars.by_ref().take(max).collect();
+    if chars.next().is_some() {
+        format!("{}...", head)
+    } else {
+        head
+    }
 }
 
 #[tauri::command]
