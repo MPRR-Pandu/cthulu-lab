@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::process::ChildStdin;
 use tokio::sync::{Mutex, RwLock};
+use tokio::task::JoinHandle;
 
 use crate::agent::types::AgentConfig;
 use crate::chat::manager::ChatManager;
@@ -27,6 +28,9 @@ pub struct AppState {
     pub auto_approve: Arc<RwLock<bool>>,
     /// Active CLI process stdin handles for sending permission responses
     pub active_processes: Arc<RwLock<HashMap<String, Arc<Mutex<ChildStdin>>>>>,
+    /// Active stream-task join handles per agent. Aborting drops the owned
+    /// Child (spawned with `kill_on_drop(true)`) so the OS process is killed.
+    pub active_streams: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
     /// Budget cap in USD for --max-budget-usd flag
     pub budget_cap: Arc<RwLock<f64>>,
     /// Tracks delegation depth per agent chain to prevent infinite loops (max depth 2)

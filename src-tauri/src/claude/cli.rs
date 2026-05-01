@@ -127,6 +127,11 @@ pub async fn spawn_claude(
         // Tell claude CLI which dir is the project root so it doesn't walk up.
         .env("CLAUDE_PROJECT_DIR", working_dir)
         .env_remove("ANTHROPIC_API_KEY")
+        // If the parent task is aborted (e.g. user sent a new message before
+        // this turn finished), drop the Child to actually SIGKILL the CLI so
+        // we don't accumulate orphan claude processes resuming the same
+        // session — that gums up the next turn.
+        .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("Failed to spawn claude CLI: {}", e))?;
 

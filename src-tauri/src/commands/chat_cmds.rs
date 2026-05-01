@@ -72,12 +72,23 @@ pub async fn send_message(
         sessions.get(&agent_id).cloned()
     };
 
-    // Cancel any in-flight process for this agent
+    // Cancel any in-flight turn for this agent.
+    //
+    // Previously this only dropped the stdin handle, which left the CLI
+    // process running. Since `--resume <sid>` is per-agent, a second send
+    // before the first finished produced two claude processes racing on the
+    // same session — claude would block / exit silently and the user saw
+    // empty replies. Aborting the stream task drops the owned `Child`
+    // (spawned with `kill_on_drop(true)`) and SIGKILLs the CLI.
+    {
+        let mut streams = state.active_streams.write().await;
+        if let Some(handle) = streams.remove(&agent_id) {
+            handle.abort();
+        }
+    }
     {
         let mut procs = state.active_processes.write().await;
-        if let Some(old_stdin) = procs.remove(&agent_id) {
-            drop(old_stdin);
-        }
+        procs.remove(&agent_id);
     }
 
     tracing::info!(
@@ -116,53 +127,37 @@ pub async fn send_message(
     let inbox = state.inbox.clone();
     let active_procs = state.active_processes.clone();
 
-    tokio::spawn(async move {
-        match claude::stream::stream_response(&ah, child, &aid, &msg_id, &cm).await {
-            Ok(Some(session_id)) => {
-                let mut sessions = agent_sessions.write().await;
-                sessions.insert(aid.clone(), session_id);
-                let mut counts = failure_counts.write().await;
-                counts.remove(&aid);
+    let handle = tokio::spawn(async move {
+        let result = claude::stream::stream_response(&ah, child, &aid, &msg_id, &cm).await;
 
-                // Post completion report to inbox
-                let response_preview = {
-                    let msgs = cm.get_messages(&aid).await;
-                    msgs.last()
-                        .map(|m| {
-                            let text = m.content.chars().take(80).collect::<String>();
-                            if m.content.len() > 80 { format!("{}...", text) } else { text }
-                        })
-                        .unwrap_or_default()
-                };
-                if !response_preview.is_empty() {
-                    let report = InboxMessage {
-                        id: Uuid::new_v4().to_string(),
-                        from: aid.clone(),
-                        to: "user".to_string(),
-                        message_type: InboxMessageType::Report,
-                        content: response_preview,
-                        timestamp: Utc::now(),
-                        read: false,
-                        ref_message_id: Some(msg_id.clone()),
-                    };
-                    inbox.add(report).await;
+        // Read what (if anything) the agent actually produced for this turn.
+        let last_agent_content = {
+            let msgs = cm.get_messages(&aid).await;
+            msgs.iter()
+                .rev()
+                .find(|m| m.id == msg_id)
+                .map(|m| m.content.clone())
+                .unwrap_or_default()
+        };
+        let produced_output = !last_agent_content.trim().is_empty();
+
+        match result {
+            Ok(session_id_opt) => {
+                if let Some(session_id) = session_id_opt {
+                    let mut sessions = agent_sessions.write().await;
+                    sessions.insert(aid.clone(), session_id);
                 }
-            }
-            Ok(None) => {
-                let mut counts = failure_counts.write().await;
-                counts.remove(&aid);
 
-                // Post completion report to inbox
-                let response_preview = {
-                    let msgs = cm.get_messages(&aid).await;
-                    msgs.last()
-                        .map(|m| {
-                            let text = m.content.chars().take(80).collect::<String>();
-                            if m.content.len() > 80 { format!("{}...", text) } else { text }
-                        })
-                        .unwrap_or_default()
-                };
-                if !response_preview.is_empty() {
+                if produced_output {
+                    // Successful turn — clear failure counter, post inbox preview.
+                    {
+                        let mut counts = failure_counts.write().await;
+                        counts.remove(&aid);
+                    }
+                    let response_preview = {
+                        let text: String = last_agent_content.chars().take(80).collect();
+                        if last_agent_content.len() > 80 { format!("{}...", text) } else { text }
+                    };
                     let report = InboxMessage {
                         id: Uuid::new_v4().to_string(),
                         from: aid.clone(),
@@ -174,6 +169,52 @@ pub async fn send_message(
                         ref_message_id: Some(msg_id.clone()),
                     };
                     inbox.add(report).await;
+                } else {
+                    // CLI exited cleanly but produced no assistant text.
+                    // Surface as an error so the user isn't staring at a
+                    // blank bubble, and count it toward the loop-detection
+                    // threshold like any other failure.
+                    let err_text =
+                        "claude CLI exited without producing any output (session may be stale or rate-limited)";
+                    tracing::warn!(agent = %aid, "{}", err_text);
+                    cm.append_to_streaming(&aid, &msg_id, &format!("[Error: {}]", err_text)).await;
+                    cm.finalize_message(&aid, &msg_id).await;
+
+                    let count = {
+                        let mut counts = failure_counts.write().await;
+                        let count = counts.entry(aid.clone()).or_insert(0);
+                        *count += 1;
+                        *count
+                    };
+
+                    if count >= 3 {
+                        // Stale session is the most likely cause after
+                        // repeated empty turns — drop it so the next send
+                        // starts fresh instead of resuming a dead one.
+                        agent_sessions.write().await.remove(&aid);
+
+                        let alert_content = format!(
+                            "{} produced empty replies {} times in a row. Cleared session — try again.",
+                            aid, count
+                        );
+                        let alert_msg = InboxMessage {
+                            id: Uuid::new_v4().to_string(),
+                            from: "system".to_string(),
+                            to: "user".to_string(),
+                            message_type: InboxMessageType::Alert,
+                            content: alert_content.clone(),
+                            timestamp: Utc::now(),
+                            read: false,
+                            ref_message_id: None,
+                        };
+                        inbox.add(alert_msg).await;
+                        let _ = ah.emit("agent-stuck", serde_json::json!({
+                            "agent_id": aid,
+                            "failure_count": count,
+                            "message": alert_content,
+                        }));
+                        failure_counts.write().await.remove(&aid);
+                    }
                 }
             }
             Err(e) => {
@@ -182,7 +223,6 @@ pub async fn send_message(
                     .await;
                 cm.finalize_message(&aid, &msg_id).await;
 
-                // Loop detection: increment failure count
                 let count = {
                     let mut counts = failure_counts.write().await;
                     let count = counts.entry(aid.clone()).or_insert(0);
@@ -207,24 +247,30 @@ pub async fn send_message(
                     };
                     inbox.add(alert_msg).await;
 
-                    // Emit event so frontend can react
                     let _ = ah.emit("agent-stuck", serde_json::json!({
                         "agent_id": aid,
                         "failure_count": count,
                         "message": alert_content,
                     }));
 
-                    // Reset count after alerting
-                    let mut counts = failure_counts.write().await;
-                    counts.remove(&aid);
+                    failure_counts.write().await.remove(&aid);
                 }
             }
         }
 
-        // Clean up stdin handle
-        let mut procs = active_procs.write().await;
-        procs.remove(&aid);
+        // Clean up the stdin handle. Don't touch active_streams here — the
+        // next send_message removes/aborts the previous entry, and removing
+        // a completed handle here would race with that insert and orphan a
+        // live task. A finished JoinHandle in the map is harmless (abort()
+        // is a no-op on completed tasks).
+        active_procs.write().await.remove(&aid);
     });
+
+    state
+        .active_streams
+        .write()
+        .await
+        .insert(agent_id.clone(), handle);
 
     Ok(agent_msg_id)
 }
