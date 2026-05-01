@@ -131,6 +131,11 @@ pub async fn spawn_claude(
         // this turn finished), drop the Child to actually SIGKILL the CLI so
         // we don't accumulate orphan claude processes resuming the same
         // session — that gums up the next turn.
+        //
+        // NOTE: this is SIGKILL, not SIGTERM — claude has no chance to flush
+        // cost telemetry or remove tmp files. That's acceptable for a user-
+        // initiated cancel; if we ever need a graceful path, send SIGTERM
+        // first and only escalate to drop after a short timeout.
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("Failed to spawn claude CLI: {}", e))?;

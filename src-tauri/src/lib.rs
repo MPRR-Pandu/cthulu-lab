@@ -54,8 +54,8 @@ pub fn run() {
         active_workspace: Arc::new(RwLock::new(ws_active)),
         speed_mode: Arc::new(RwLock::new("fast".to_string())),
         auto_approve: Arc::new(RwLock::new(false)),
-        active_processes: Arc::new(RwLock::new(HashMap::new())),
-        active_streams: Arc::new(RwLock::new(HashMap::new())),
+        active_turns: Arc::new(RwLock::new(HashMap::new())),
+        agent_send_locks: Arc::new(RwLock::new(HashMap::new())),
         budget_cap: Arc::new(RwLock::new(5.0)),
         delegation_depth: Arc::new(RwLock::new(HashMap::new())),
     };
