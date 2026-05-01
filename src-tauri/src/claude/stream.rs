@@ -15,6 +15,17 @@ pub struct ToolUseEvent {
     pub block_index: u64,
 }
 
+/// Result of streaming one CLI turn.
+///
+/// `had_text` is the authoritative signal for "did the model actually
+/// produce any assistant text this turn". The caller uses it instead of
+/// scanning `chat_manager` content (which is fragile if other code paths
+/// have written into the same message).
+pub struct StreamSummary {
+    pub session_id: Option<String>,
+    pub had_text: bool,
+}
+
 /// Stream claude CLI output to frontend via Tauri events.
 /// Returns the session_id from the init event so we can resume later.
 pub async fn stream_response(
@@ -23,7 +34,7 @@ pub async fn stream_response(
     agent_id: &str,
     message_id: &str,
     chat_manager: &ChatManager,
-) -> Result<Option<String>, String> {
+) -> Result<StreamSummary, String> {
     // Capture stderr and emit as debug events to frontend
     let stderr = child.stderr.take();
     if let Some(stderr) = stderr {
@@ -58,6 +69,7 @@ pub async fn stream_response(
     let mut last_emit = Instant::now();
     let batch_interval = std::time::Duration::from_millis(50);
     let mut tool_call_count: u32 = 0;
+    let mut had_text: bool = false;
 
     // Signal that the read loop has started so UI can show "waiting for first token".
     tracing::info!(agent = %agent_id, "stream loop started, awaiting first line from claude CLI");
@@ -142,6 +154,9 @@ pub async fn stream_response(
         }
 
         if let Some(text) = extract_text_from_stream_json(&line) {
+            if !text.is_empty() {
+                had_text = true;
+            }
             chat_manager
                 .append_to_streaming(agent_id, message_id, &text)
                 .await;
@@ -180,6 +195,8 @@ pub async fn stream_response(
 
     chat_manager.finalize_message(agent_id, message_id).await;
 
+    let summary = StreamSummary { session_id, had_text };
+
     let _ = app_handle.emit(
         "chat-stats",
         serde_json::json!({
@@ -199,7 +216,7 @@ pub async fn stream_response(
         },
     );
 
-    Ok(session_id)
+    Ok(summary)
 }
 
 fn extract_session_id(line: &str) -> Option<String> {

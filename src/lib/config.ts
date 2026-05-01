@@ -1,5 +1,9 @@
 // Centralized config — all external URLs flow from here.
 // Persisted to localStorage so settings survive app restart.
+//
+// Defaults assume a local dev setup (Express on :3001, VM gateway on :8080).
+// Override at build time via Vite env vars (VITE_API_URL / VITE_GATEWAY_URL)
+// or at runtime in the in-app Connection settings panel.
 
 const STORAGE_KEY = "cthulu-lab-config";
 
@@ -9,8 +13,8 @@ interface Config {
 }
 
 const DEFAULTS: Config = {
-  apiUrl: "https://cthulu-lab.capybara.systems/api",
-  gatewayUrl: "http://34.100.130.60:8080",
+  apiUrl: import.meta.env.VITE_API_URL ?? "http://localhost:3001/api",
+  gatewayUrl: import.meta.env.VITE_GATEWAY_URL ?? "http://localhost:8080",
 };
 
 let _config: Config | null = null;

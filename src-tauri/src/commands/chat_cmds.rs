@@ -4,10 +4,10 @@ use tauri::Emitter;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
-use crate::chat::types::{ChatMessage, Role};
+use crate::chat::types::{ChatMessage, Role, StreamChunk};
 use crate::claude;
 use crate::inbox::types::{InboxMessage, InboxMessageType};
-use crate::state::AppState;
+use crate::state::{ActiveTurn, AppState};
 
 #[tauri::command]
 pub async fn send_message(
@@ -29,17 +29,10 @@ pub async fn send_message(
     };
     chat_manager.add_message(&agent_id, user_msg).await;
 
-    // Create agent message stub
+    // The agent message stub is added AFTER we successfully spawn the CLI
+    // (see below). Adding it earlier means an early-return on a spawn error
+    // leaves an orphan `is_streaming: true` stub in `ChatManager` forever.
     let agent_msg_id = Uuid::new_v4().to_string();
-    let agent_msg = ChatMessage {
-        id: agent_msg_id.clone(),
-        role: Role::Agent,
-        content: String::new(),
-        timestamp: Utc::now(),
-        agent_id: agent_id.clone(),
-        is_streaming: true,
-    };
-    chat_manager.add_message(&agent_id, agent_msg).await;
 
     // Use active workspace as working directory — must be set
     let working_dir = state.active_workspace.read().await.clone();
@@ -66,19 +59,20 @@ pub async fn send_message(
     let auto_approve = *state.auto_approve.read().await;
     let budget_cap = *state.budget_cap.read().await;
 
-    // Check if we have an existing session for this agent
+    // Per-agent serialization. Holding this lock across cancel-prev +
+    // spawn-new + insert prevents two callers for the same agent from
+    // racing. Other agents have independent mutexes and proceed in
+    // parallel.
+    let agent_lock = state.agent_send_lock(&agent_id).await;
+    let _send_guard = agent_lock.lock().await;
+
+    // Snapshot the resume session id INSIDE the lock — otherwise a stale
+    // sid that the previous turn's loop-detection path has just dropped
+    // could be re-used here.
     let existing_session = {
         let sessions = state.agent_sessions.read().await;
         sessions.get(&agent_id).cloned()
     };
-
-    // Cancel any in-flight process for this agent
-    {
-        let mut procs = state.active_processes.write().await;
-        if let Some(old_stdin) = procs.remove(&agent_id) {
-            drop(old_stdin);
-        }
-    }
 
     tracing::info!(
         agent = %agent_id,
@@ -88,7 +82,26 @@ pub async fn send_message(
         "sending message"
     );
 
-    // Spawn claude CLI — resume session if we have one
+    // Cancel any previous turn for this agent. We `take` the entry out of
+    // the map (releasing the map's write lock immediately) and then await
+    // the aborted task so its destructor drops the owned `Child` and
+    // `kill_on_drop(true)` finishes SIGKILLing the previous claude before
+    // we spawn the next one. Otherwise two CLI processes can briefly race
+    // on the same `--resume <sid>`.
+    let prev_turn = state.active_turns.write().await.remove(&agent_id);
+    if let Some(prev) = prev_turn {
+        prev.handle.abort();
+        if let Err(e) = prev.handle.await {
+            if e.is_panic() {
+                tracing::error!(agent = %agent_id, "previous turn panicked: {:?}", e);
+            }
+            // is_cancelled() is the expected path after abort(); ignore.
+        }
+    }
+
+    // Spawn claude CLI — resume session if we have one. Note: this runs
+    // before we add the agent stub to ChatManager, so an Err here returns
+    // without leaving an orphan `is_streaming: true` message behind.
     let mut child = claude::cli::spawn_claude(
         &agent_id,
         &final_content,
@@ -100,11 +113,21 @@ pub async fn send_message(
     )
     .await?;
 
-    // Store stdin handle for permission responses
-    if let Some(stdin_handle) = child.stdin.take() {
-        let mut procs = state.active_processes.write().await;
-        procs.insert(agent_id.clone(), Arc::new(tokio::sync::Mutex::new(stdin_handle)));
-    }
+    // Now that the CLI is alive, register the agent stub.
+    let agent_msg = ChatMessage {
+        id: agent_msg_id.clone(),
+        role: Role::Agent,
+        content: String::new(),
+        timestamp: Utc::now(),
+        agent_id: agent_id.clone(),
+        is_streaming: true,
+    };
+    chat_manager.add_message(&agent_id, agent_msg).await;
+
+    let stdin_arc = child
+        .stdin
+        .take()
+        .map(|s| Arc::new(tokio::sync::Mutex::new(s)));
 
     // Stream in background
     let msg_id = agent_msg_id.clone();
@@ -114,55 +137,32 @@ pub async fn send_message(
     let agent_sessions = state.agent_sessions.clone();
     let failure_counts = state.agent_failure_counts.clone();
     let inbox = state.inbox.clone();
-    let active_procs = state.active_processes.clone();
 
-    tokio::spawn(async move {
-        match claude::stream::stream_response(&ah, child, &aid, &msg_id, &cm).await {
-            Ok(Some(session_id)) => {
-                let mut sessions = agent_sessions.write().await;
-                sessions.insert(aid.clone(), session_id);
-                let mut counts = failure_counts.write().await;
-                counts.remove(&aid);
+    let handle = tokio::spawn(async move {
+        let result = claude::stream::stream_response(&ah, child, &aid, &msg_id, &cm).await;
 
-                // Post completion report to inbox
-                let response_preview = {
-                    let msgs = cm.get_messages(&aid).await;
-                    msgs.last()
-                        .map(|m| {
-                            let text = m.content.chars().take(80).collect::<String>();
-                            if m.content.len() > 80 { format!("{}...", text) } else { text }
-                        })
-                        .unwrap_or_default()
-                };
-                if !response_preview.is_empty() {
-                    let report = InboxMessage {
-                        id: Uuid::new_v4().to_string(),
-                        from: aid.clone(),
-                        to: "user".to_string(),
-                        message_type: InboxMessageType::Report,
-                        content: response_preview,
-                        timestamp: Utc::now(),
-                        read: false,
-                        ref_message_id: Some(msg_id.clone()),
-                    };
-                    inbox.add(report).await;
+        match result {
+            Ok(summary) => {
+                if let Some(session_id) = summary.session_id {
+                    let mut sessions = agent_sessions.write().await;
+                    sessions.insert(aid.clone(), session_id);
                 }
-            }
-            Ok(None) => {
-                let mut counts = failure_counts.write().await;
-                counts.remove(&aid);
 
-                // Post completion report to inbox
-                let response_preview = {
-                    let msgs = cm.get_messages(&aid).await;
-                    msgs.last()
-                        .map(|m| {
-                            let text = m.content.chars().take(80).collect::<String>();
-                            if m.content.len() > 80 { format!("{}...", text) } else { text }
-                        })
-                        .unwrap_or_default()
-                };
-                if !response_preview.is_empty() {
+                if summary.had_text {
+                    // Successful turn — clear failure counter, post inbox preview.
+                    {
+                        let mut counts = failure_counts.write().await;
+                        counts.remove(&aid);
+                    }
+                    let last_agent_content = {
+                        let msgs = cm.get_messages(&aid).await;
+                        msgs.iter()
+                            .rev()
+                            .find(|m| m.id == msg_id)
+                            .map(|m| m.content.clone())
+                            .unwrap_or_default()
+                    };
+                    let response_preview = truncate_chars(&last_agent_content, 80);
                     let report = InboxMessage {
                         id: Uuid::new_v4().to_string(),
                         from: aid.clone(),
@@ -174,6 +174,73 @@ pub async fn send_message(
                         ref_message_id: Some(msg_id.clone()),
                     };
                     inbox.add(report).await;
+                } else {
+                    // CLI exited cleanly but never emitted a text delta.
+                    // Surface as an error so the user isn't staring at a
+                    // blank bubble, and count it toward loop detection.
+                    //
+                    // `stream::stream_response` already emitted `done: true`
+                    // before returning, so the frontend has finalized the
+                    // bubble. We append the error to ChatManager AND emit a
+                    // matching pair of `chat-stream` events (a chunk with
+                    // the error text + a fresh `done: true`) so the
+                    // frontend's chunk handler appends and re-finalizes
+                    // even though the bubble is no longer streaming. The
+                    // double-done is benign — finalize is idempotent.
+                    let err_text =
+                        "claude CLI exited without producing any output (session may be stale or rate-limited)";
+                    let err_line = format!("[Error: {}]", err_text);
+                    tracing::warn!(agent = %aid, "{}", err_text);
+                    cm.append_to_streaming(&aid, &msg_id, &err_line).await;
+                    cm.finalize_message(&aid, &msg_id).await;
+                    let _ = ah.emit("chat-stream", StreamChunk {
+                        agent_id: aid.clone(),
+                        message_id: msg_id.clone(),
+                        chunk: err_line,
+                        done: false,
+                    });
+                    let _ = ah.emit("chat-stream", StreamChunk {
+                        agent_id: aid.clone(),
+                        message_id: msg_id.clone(),
+                        chunk: String::new(),
+                        done: true,
+                    });
+
+                    let count = {
+                        let mut counts = failure_counts.write().await;
+                        let count = counts.entry(aid.clone()).or_insert(0);
+                        *count += 1;
+                        *count
+                    };
+
+                    if count >= 3 {
+                        // Stale session is the most likely cause after
+                        // repeated empty turns — drop it so the next send
+                        // starts fresh instead of resuming a dead one.
+                        agent_sessions.write().await.remove(&aid);
+
+                        let alert_content = format!(
+                            "{} produced empty replies {} times in a row. Cleared session — try again.",
+                            aid, count
+                        );
+                        let alert_msg = InboxMessage {
+                            id: Uuid::new_v4().to_string(),
+                            from: "system".to_string(),
+                            to: "user".to_string(),
+                            message_type: InboxMessageType::Alert,
+                            content: alert_content.clone(),
+                            timestamp: Utc::now(),
+                            read: false,
+                            ref_message_id: None,
+                        };
+                        inbox.add(alert_msg).await;
+                        let _ = ah.emit("agent-stuck", serde_json::json!({
+                            "agent_id": aid,
+                            "failure_count": count,
+                            "message": alert_content,
+                        }));
+                        failure_counts.write().await.remove(&aid);
+                    }
                 }
             }
             Err(e) => {
@@ -182,7 +249,6 @@ pub async fn send_message(
                     .await;
                 cm.finalize_message(&aid, &msg_id).await;
 
-                // Loop detection: increment failure count
                 let count = {
                     let mut counts = failure_counts.write().await;
                     let count = counts.entry(aid.clone()).or_insert(0);
@@ -207,24 +273,33 @@ pub async fn send_message(
                     };
                     inbox.add(alert_msg).await;
 
-                    // Emit event so frontend can react
                     let _ = ah.emit("agent-stuck", serde_json::json!({
                         "agent_id": aid,
                         "failure_count": count,
                         "message": alert_content,
                     }));
 
-                    // Reset count after alerting
-                    let mut counts = failure_counts.write().await;
-                    counts.remove(&aid);
+                    failure_counts.write().await.remove(&aid);
                 }
             }
         }
 
-        // Clean up stdin handle
-        let mut procs = active_procs.write().await;
-        procs.remove(&aid);
+        // Intentionally don't remove our own active_turns entry here:
+        // racing with a fast-follow send_message can delete the *next*
+        // turn's entry. Next send_message overwrites under the per-agent
+        // lock; known-leak: stale finished entries linger until then,
+        // bounded by agent count.
     });
+
+    // Insert the new turn under the active_turns write lock. Per-agent send
+    // mutex above guarantees no concurrent insert for this agent.
+    if stdin_arc.is_none() {
+        tracing::warn!(agent = %agent_id, "child stdin missing — permission responses will fail");
+    }
+    state.active_turns.write().await.insert(
+        agent_id.clone(),
+        ActiveTurn { stdin: stdin_arc, handle },
+    );
 
     Ok(agent_msg_id)
 }
@@ -336,14 +411,32 @@ pub async fn delegate_to_agent(
     result
 }
 
+/// Truncate `s` to at most `max` Unicode chars, appending `...` if truncated.
+/// Compares char count (not byte length) so multi-byte content isn't sliced
+/// mid-codepoint and the `...` marker stays accurate.
+fn truncate_chars(s: &str, max: usize) -> String {
+    let mut chars = s.chars();
+    let head: String = chars.by_ref().take(max).collect();
+    if chars.next().is_some() {
+        format!("{}...", head)
+    } else {
+        head
+    }
+}
+
 #[tauri::command]
 pub async fn respond_permission(
     state: tauri::State<'_, AppState>,
     agent_id: String,
     allow: bool,
 ) -> Result<(), String> {
-    let procs = state.active_processes.read().await;
-    if let Some(stdin_handle) = procs.get(&agent_id) {
+    // Clone the stdin Arc out from under the read lock so we don't hold
+    // the active_turns lock across an await on stdin write.
+    let stdin_arc = {
+        let turns = state.active_turns.read().await;
+        turns.get(&agent_id).and_then(|t| t.stdin.clone())
+    };
+    if let Some(stdin_handle) = stdin_arc {
         let mut stdin = stdin_handle.lock().await;
         let response = if allow { "y\n" } else { "n\n" };
         stdin.write_all(response.as_bytes()).await
